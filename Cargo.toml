@@ -1,0 +1,16 @@
+[package]
+name = "icao-9303-nfc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.89"
+asn1-rs = "0.6.2"
+bytes = "1.7.2"
+crc = "3.2.1"
+hex = "0.4.3"
+rusb = { version = "0.9.4", optional = true }
+
+[features]
+default = ["proxmark3"]
+proxmark3 = ["rusb"]

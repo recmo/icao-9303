@@ -2,8 +2,8 @@
 
 use {
     cipher::{
-        block_padding::NoPadding, BlockDecrypt as _, BlockEncrypt as _, BlockEncryptMut as _,
-        InnerIvInit as _, KeyInit as _,
+        block_padding::NoPadding, BlockDecrypt as _, BlockDecryptMut as _, BlockEncrypt as _,
+        BlockEncryptMut as _, InnerIvInit as _, KeyInit as _,
     },
     des::{Des, TdesEde2},
 };
@@ -50,6 +50,15 @@ pub fn enc_3des(key: &[u8; 16], msg: &mut [u8]) {
     block_mode
         .encrypt_padded_mut::<NoPadding>(msg, len)
         .unwrap();
+}
+
+pub fn dec_3des(key: &[u8; 16], msg: &mut [u8]) {
+    assert!(msg.len() % 8 == 0);
+
+    let cipher = TdesEde2::new_from_slice(key).unwrap();
+    let iv = [0; 8];
+    let block_mode = cbc::Decryptor::inner_iv_slice_init(cipher, &iv).unwrap();
+    block_mode.decrypt_padded_mut::<NoPadding>(msg).unwrap();
 }
 
 #[cfg(test)]

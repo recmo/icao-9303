@@ -7,16 +7,17 @@ mod tdes;
 use {
     crate::{
         nfc::Nfc,
-        tdes::{enc_3des, mac_3des},
+        tdes::{dec_3des, enc_3des, mac_3des},
     },
     anyhow::{anyhow, ensure, Result},
     der::{
         asn1::{AnyRef, ObjectIdentifier},
         Sequence, ValueOrd,
     },
+    iso7816::StatusWord,
     rand::Rng,
     sha1::{Digest, Sha1},
-    std::env,
+    std::{array, env},
     tdes::set_parity_bits,
 };
 
@@ -174,6 +175,10 @@ impl Icao9303 {
 
         Ok(data)
     }
+
+    pub fn send_apdu(&mut self, apdu: &[u8]) -> Result<(StatusWord, Vec<u8>)> {
+        self.nfc.send_apdu(apdu)
+    }
 }
 
 fn main() -> Result<()> {
@@ -191,8 +196,8 @@ fn main() -> Result<()> {
     // Read CardAccess file using short EF.
     // Presence means PACE is supported.
     // card.select_master_file()?;
-    // let data = card.read_binary_short_ef(0x1C)?;
-    // println!("CardAccess: {}", hex::encode(data));
+    let data = card.read_binary_short_ef(0x1C)?;
+    println!("CardAccess: {}", hex::encode(data));
 
     // Initiate Basic Authentication.
 
@@ -224,7 +229,45 @@ fn main() -> Result<()> {
     msg.extend(mac_3des(&kmac, &msg));
 
     // EXTERNAL AUTHENTICATE
-    card.external_authenticate(&msg)?;
+    let mut resp_data = card.external_authenticate(&msg)?;
+    println!("Response: {}", hex::encode(&resp_data));
+    ensure!(resp_data.len() == 40);
+
+    // Check MAC and decrypt response
+    let mac = mac_3des(&kmac, &resp_data[..32]);
+    println!("MAC: {}", hex::encode(mac));
+    ensure!(&resp_data[32..] == &mac[..]);
+    dec_3des(&kenc, &mut resp_data[..32]);
+    let resp_data = &resp_data[..32];
+
+    // Check nonce consistency
+    ensure!(&resp_data[0..8] == &rnd_ic[..]);
+    ensure!(&resp_data[8..16] == &rnd_ifd[..]);
+    let k_ic: [u8; 16] = resp_data[16..].try_into().unwrap();
+
+    println!("k.ic: {}", hex::encode(k_ic));
+
+    // Construct seed for session keys
+    let seed: [u8; 16] = array::from_fn(|i| k_ifd[i] ^ k_ic[i]);
+    let (ksenc, ksmac) = derive_keys(&seed);
+
+    // Construct send sequence counter
+    // See ICAO 9303-10 section 9.8.6.3
+    let mut ssc_bytes = vec![];
+    ssc_bytes.extend_from_slice(&rnd_ic[4..]);
+    ssc_bytes.extend_from_slice(&rnd_ifd[4..]);
+    let mut ssc: u64 = u64::from_be_bytes(ssc_bytes[..8].try_into().unwrap());
+
+    println!("ks_enc: {}", hex::encode(ksenc));
+    println!("ks_mac: {}", hex::encode(ksmac));
+    println!("ssc: {:016X}", ssc);
+
+    // Select EF.COM (00 A4 02 0C 02 01 01)
+    let apdu = [0x00, 0xA4, 0x02, 0x0C, 0x02, 0x01, 0x01];
+    ssc = ssc.wrapping_add(1);
+    let papdu = enc_apdu((ksenc, ksmac), ssc, &apdu);
+    let (status, data) = card.send_apdu(&papdu)?;
+    println!("Response: {}\nData: {}", status, hex::encode(&data));
 
     Ok(())
 }
@@ -250,14 +293,68 @@ pub fn derive_key(seed: &[u8; 16], counter: u32) -> [u8; 16] {
     key
 }
 
-#[test]
-/// Example from ICAO 9303-11 section D.2
-fn test_bac_example() {
-    let mrz = "L898902C<369080619406236";
-    let seed = seed_from_mrz(mrz);
-    assert_eq!(seed, hex!("239AB9CB282DAF66231DC5A4DF6BFBAE"));
+pub fn enc_apdu((kenc, kmac): ([u8; 16], [u8; 16]), ssc: u64, apdu: &[u8]) -> Vec<u8> {
+    let mut apdu = apdu.to_vec();
+    apdu[0] |= 0x0C; // Set SM bit
+    let mut cmd_header = apdu[0..4].to_vec();
+    cmd_header.extend_from_slice(&[0x80, 0x00, 0x00, 0x00]); // Pad
+    let mut cmd_data = apdu[5..].to_vec();
+    cmd_data.push(0x80);
+    while cmd_data.len() % 8 != 0 {
+        cmd_data.push(0x00);
+    }
+    enc_3des(&kenc, &mut cmd_data);
 
-    let (kenc, kmac) = derive_keys(&seed);
-    assert_eq!(kenc, hex!("AB94FDECF2674FDFB9B391F85D7F76F2"));
-    assert_eq!(kmac, hex!("7962D9ECE03D1ACD4C76089DCE131543"));
+    // Compute MAC
+    let mut n = ssc.to_be_bytes().to_vec();
+    n.extend_from_slice(&cmd_header);
+    n.extend_from_slice(&[0x87, 0x09, 0x01]);
+    n.extend_from_slice(&cmd_data);
+    let mac = mac_3des(&kmac, &n);
+    let mut papdu = apdu[0..4].to_vec();
+    papdu.push(0x15); // TODO: Length?
+    papdu.extend_from_slice(&[0x87, 0x09, 0x01]);
+    papdu.extend_from_slice(&cmd_data);
+    papdu.extend_from_slice(&[0x8E, 0x08]);
+    papdu.extend_from_slice(&mac);
+    papdu.push(0x00);
+    papdu
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, hex_literal::hex};
+
+    /// Example from ICAO 9303-11 section D.2
+    #[test]
+    fn test_bac_example() {
+        let mrz = "L898902C<369080619406236";
+        let seed = seed_from_mrz(mrz);
+        assert_eq!(seed, hex!("239AB9CB282DAF66231DC5A4DF6BFBAE"));
+
+        let (kenc, kmac) = derive_keys(&seed);
+        assert_eq!(kenc, hex!("AB94FDECF2674FDFB9B391F85D7F76F2"));
+        assert_eq!(kmac, hex!("7962D9ECE03D1ACD4C76089DCE131543"));
+    }
+
+    #[test]
+    fn test_derive_keys() {
+        let k_seed = hex!("0036D272F5C350ACAC50C3F572D23600");
+        let (kenc, kmac) = derive_keys(&k_seed);
+        assert_eq!(kenc, hex!("979EC13B1CBFE9DCD01AB0FED307EAE5"));
+        assert_eq!(kmac, hex!("F1CB1F1FB5ADF208806B89DC579DC1F8"));
+    }
+
+    #[test]
+    fn test_enc_apdu() {
+        let seed = hex!("0036D272F5C350ACAC50C3F572D23600");
+        let keys = derive_keys(&seed);
+        let ssc = 0x887022120C06C227;
+        let apdu = hex!("00A4020C02011E");
+        let enc = enc_apdu(keys, ssc, &apdu);
+        assert_eq!(
+            enc,
+            hex!("0CA4020C158709016375432908C044F68E08BF8B92D635FF24F800")
+        );
+    }
 }

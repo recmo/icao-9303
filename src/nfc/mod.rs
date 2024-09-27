@@ -1,6 +1,6 @@
 mod proxmark3;
 
-use anyhow::Result;
+use {crate::iso7816::StatusWord, anyhow::Result};
 
 pub struct Nfc {
     reader: Box<dyn NfcReader>,
@@ -9,7 +9,7 @@ pub struct Nfc {
 pub trait NfcReader {
     fn connect(&mut self) -> Result<()>;
     fn disconnect(&mut self) -> Result<()>;
-    fn send_apdu(&mut self, apdu: &[u8]) -> Result<(u16, Vec<u8>)>;
+    fn send_apdu(&mut self, apdu: &[u8]) -> Result<(StatusWord, Vec<u8>)>;
 }
 
 impl Nfc {
@@ -28,7 +28,10 @@ impl Nfc {
         self.reader.disconnect()
     }
 
-    pub fn send_apdu(&mut self, apdu: &[u8]) -> Result<(u16, Vec<u8>)> {
+    pub fn send_apdu(&mut self, apdu: &[u8]) -> Result<(StatusWord, Vec<u8>)> {
         self.reader.send_apdu(apdu)
+
+        // TODO: handle GET RESPONSE
+        // TODO: handle
     }
 }

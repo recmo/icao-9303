@@ -4,12 +4,23 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+aes = "0.8.4"
 anyhow = "1.0.89"
 asn1-rs = "0.6.2"
 bytes = "1.7.2"
+cbc = { version = "0.1.2", features = ["block-padding"] }
+cbc-mac = "0.1.1"
+cipher = { version = "0.4.4", features = ["alloc", "block-padding"] }
 crc = "3.2.1"
+der = { version = "0.7.9", features = ["oid", "derive", "std"] }
+des = "0.8.1"
 hex = "0.4.3"
+hex-literal = "0.4.1"
+num_enum = "0.7.3"
+rand = "0.8.5"
 rusb = { version = "0.9.4", optional = true }
+sha1 = "0.10.6"
+thiserror = "1.0.64"
 
 [features]
 default = ["proxmark3"]

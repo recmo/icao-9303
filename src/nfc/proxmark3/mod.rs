@@ -8,6 +8,7 @@ mod usb; // TODO: BLE
 use {
     self::usb::UsbConnection,
     super::NfcReader,
+    crate::iso7816::StatusWord,
     anyhow::{ensure, Result},
     bytes::{Buf, BufMut, BytesMut},
     crc::{Crc, CRC_16_ISO_IEC_14443_3_A},
@@ -39,6 +40,7 @@ pub enum Status {
 pub struct Proxmark3 {
     connection: Box<dyn Connection>,
     crc: bool,
+    trace: bool,
 }
 
 /// Connection to a Proxmark3 UART interface.
@@ -66,6 +68,7 @@ impl Proxmark3 {
         Proxmark3 {
             connection,
             crc: true,
+            trace: true,
         }
     }
 
@@ -100,11 +103,13 @@ impl Proxmark3 {
         let _secttion_size = response.get_u32_le();
         let version_str_len = response.get_u32_le();
         let version_str = &response[..version_str_len as usize];
-        eprintln!(
-            "Proxmark3 version: {}",
-            String::from_utf8(version_str.to_vec()).unwrap()
-        );
-        eprintln!("Proxmark3 connected\n\n");
+
+        if self.trace {
+            eprintln!(
+                "Proxmark3 version: {}",
+                String::from_utf8(version_str.to_vec()).unwrap()
+            );
+        }
         Ok(())
     }
 
@@ -193,7 +198,6 @@ impl NfcReader for Proxmark3 {
         // Connect to ISO 14443-A card as reader, keeping the field on.
         // hf 14a reader -k
         // https://github.com/RfidResearchGroup/proxmark3/blob/55ef252a5d0d590026a4959a4c1b7a6028d1ad13/include/mifare.h#L88
-        eprintln!("Connecting card:");
         self.send_command_mix(Command::Hf14aReader, 3, 0, 0, &[])?; // 3 = CONNECT | NO_DISCONNECT
         let (status, cmd, response) = self.receive_response()?;
         ensure!(status == Status::Success as i16);
@@ -206,32 +210,38 @@ impl NfcReader for Proxmark3 {
         let (uuid, mut response) = response.split_at(10);
         let uuid_len = response.get_u8();
         let uuid = &uuid[..uuid_len as usize];
-        println!("Card UID: {}", hex::encode(uuid));
         let atqa = response.get_u16_le();
         let sak = response.get_u8();
         let ats_len = response.get_u8();
         let (ats, mut response) = response.split_at(ats_len as usize);
-        println!("Card ATQA: {}", hex::encode(atqa.to_be_bytes()));
-        println!("Card SAK: {}", hex::encode(sak.to_le_bytes()));
-        println!("Card ATS: {}", hex::encode(ats));
+        if self.trace {
+            println!("Card UID: {}", hex::encode(uuid));
+            println!("Card ATQA: {}", hex::encode(atqa.to_be_bytes()));
+            println!("Card SAK: {}", hex::encode(sak.to_le_bytes()));
+            println!("Card ATS: {}", hex::encode(ats));
+        }
         Ok(())
     }
 
     fn disconnect(&mut self) -> Result<()> {
         // Switch field off
-        eprintln!("Disconnecting card:");
+        if self.trace {
+            eprintln!("Switching field off:");
+        }
         self.send_command_mix(Command::Hf14aReader, 1, 0, 0, &[])?;
-        let response = self.receive_response()?;
+        let _response = self.receive_response()?;
         Ok(())
     }
 
-    fn send_apdu(&mut self, apdu: &[u8]) -> Result<(u16, Vec<u8>)> {
+    fn send_apdu(&mut self, apdu: &[u8]) -> Result<(StatusWord, Vec<u8>)> {
         // hf 14a apdu -k -d <apdu>
-        eprint!("Sending APDU:");
-        for byte in apdu.iter() {
-            eprint!(" {:02X}", byte);
+        if self.trace {
+            eprint!("Sending APDU:");
+            for byte in apdu.iter() {
+                eprint!(" {:02X}", byte);
+            }
+            eprintln!();
         }
-        eprintln!();
         self.send_command_mix(Command::Hf14aReader, 6, apdu.len() as u64, 0, &apdu)?; // 6 = SEND_APDU | NO_DISCONNECT
         let (status, cmd, response) = self.receive_response()?;
         ensure!(status == Status::Success as i16);
@@ -245,16 +255,22 @@ impl NfcReader for Proxmark3 {
         ensure!(length <= 512);
         let data = &response[..length as usize - 2];
         let (data, status) = data.split_at(data.len() - 2);
-        eprint!("APDU response:");
-        for byte in data.iter() {
-            eprint!(" {:02X}", byte);
+
+        if self.trace {
+            eprint!("APDU response:");
+            for byte in data.iter() {
+                eprint!(" {:02X}", byte);
+            }
+            eprint!(" | ");
+            for byte in status.iter() {
+                eprint!(" {:02X}", byte);
+            }
+            eprintln!();
         }
-        eprint!(" | ");
-        for byte in status.iter() {
-            eprint!(" {:02X}", byte);
+        let status = u16::from_be_bytes([status[0], status[1]]).into();
+        if self.trace {
+            eprintln!("Status {}", status);
         }
-        eprintln!();
-        let status = u16::from_be_bytes([status[0], status[1]]);
         Ok((status, data.to_vec()))
     }
 }

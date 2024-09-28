@@ -158,16 +158,16 @@ impl Proxmark3 {
         let mut header = [0_u8; 10];
         self.connection.read(&mut header)?;
 
-        print!("Received ");
-        for byte in header.iter() {
-            print!(" {:02X} ", byte);
-        }
-        print!(" | ");
+        // print!("Received ");
+        // for byte in header.iter() {
+        //     print!(" {:02X} ", byte);
+        // }
+        // print!(" | ");
 
         let mut header = &header[..];
         ensure!(header.get_u32_le() == 0x62334d50); // magic
         let len = header.get_u16_le();
-        let (len, ng) = (len & 0x7FFF, len & 0x8000 != 0);
+        let (len, _ng) = (len & 0x7FFF, len & 0x8000 != 0);
         ensure!(len <= 512);
         let status = header.get_i16_le();
         let cmd = header.get_u16_le();
@@ -175,19 +175,19 @@ impl Proxmark3 {
         // Read data
         let mut data = vec![0_u8; len as usize];
         self.connection.read(&mut data)?;
-        for byte in data.iter() {
-            print!(" {:02X} ", byte);
-        }
-        print!(" | ");
+        // for byte in data.iter() {
+        //     print!(" {:02X} ", byte);
+        // }
+        // print!(" | ");
 
         // Read CRC
         let mut crc = [0_u8; 2];
         self.connection.read(&mut crc)?;
         // TODO: Check CRC
-        for byte in crc.iter() {
-            print!(" {:02X} ", byte);
-        }
-        println!("");
+        // for byte in crc.iter() {
+        //     print!(" {:02X} ", byte);
+        // }
+        // println!("");
 
         Ok((status, cmd, data))
     }
@@ -204,16 +204,16 @@ impl NfcReader for Proxmark3 {
         ensure!(cmd == Command::Ack as u16);
         ensure!(response.len() == 295);
         let mut response = &response[..];
-        let arg0 = response.get_u64_le();
-        let arg1 = response.get_u64_le();
-        let arg2 = response.get_u64_le();
+        let _arg0 = response.get_u64_le();
+        let _arg1 = response.get_u64_le();
+        let _arg2 = response.get_u64_le();
         let (uuid, mut response) = response.split_at(10);
         let uuid_len = response.get_u8();
         let uuid = &uuid[..uuid_len as usize];
         let atqa = response.get_u16_le();
         let sak = response.get_u8();
         let ats_len = response.get_u8();
-        let (ats, mut response) = response.split_at(ats_len as usize);
+        let (ats, mut _response) = response.split_at(ats_len as usize);
         if self.trace {
             println!("Card UID: {}", hex::encode(uuid));
             println!("Card ATQA: {}", hex::encode(atqa.to_be_bytes()));
@@ -242,15 +242,15 @@ impl NfcReader for Proxmark3 {
             }
             eprintln!();
         }
-        self.send_command_mix(Command::Hf14aReader, 6, apdu.len() as u64, 0, &apdu)?; // 6 = SEND_APDU | NO_DISCONNECT
+        self.send_command_mix(Command::Hf14aReader, 6, apdu.len() as u64, 0, apdu)?; // 6 = SEND_APDU | NO_DISCONNECT
         let (status, cmd, response) = self.receive_response()?;
         ensure!(status == Status::Success as i16);
         ensure!(cmd == Command::Ack as u16);
         ensure!(response.len() == 512);
         let mut response = &response[..];
         let length = response.get_u64_le();
-        let result = response.get_u64_le();
-        let arg2 = response.get_u64_le();
+        let _result = response.get_u64_le();
+        let _arg2 = response.get_u64_le();
         ensure!(length >= 2);
         ensure!(length <= 512);
         let data = &response[..length as usize - 2];

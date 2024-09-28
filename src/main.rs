@@ -12,7 +12,7 @@ use {
     anyhow::{anyhow, ensure, Result},
     der::{
         asn1::{AnyRef, ObjectIdentifier},
-        Sequence, ValueOrd,
+        Header, Sequence, ValueOrd,
     },
     iso7816::StatusWord,
     rand::Rng,
@@ -45,19 +45,21 @@ pub const MY_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("0.4.0.127.0.7
 
 pub struct Icao9303 {
     nfc: Nfc,
+    secure_messaging: Box<dyn SecureMessaging>,
 }
 
 impl Icao9303 {
     pub fn new(nfc: Nfc) -> Self {
-        Self { nfc }
+        Self {
+            nfc,
+            secure_messaging: Box::new(PlainText),
+        }
     }
 
     pub fn select_master_file(&mut self) -> Result<()> {
         // Select by file identifier
         // See ISO/IEC 7816-4 section 11.2.2
-        let (status, data) = self
-            .nfc
-            .send_apdu(&[0x00, 0xA4, 0x00, 0x0C, 0x02, 0x3F, 0x00])?;
+        let (status, data) = self.send_apdu(&[0x00, 0xA4, 0x00, 0x0C, 0x02, 0x3F, 0x00])?;
         if !status.is_success() && status.data_remaining().is_none() {
             return Err(anyhow!("Failed to select master file: {}", status));
         }
@@ -69,7 +71,7 @@ impl Icao9303 {
         ensure!(application_id.len() <= 16);
         let mut apdu = vec![0x00, 0xA4, 0x04, 0x0C, application_id.len() as u8];
         apdu.extend_from_slice(application_id);
-        let (status, data) = self.nfc.send_apdu(&apdu)?;
+        let (status, data) = self.send_apdu(&apdu)?;
         if !status.is_success() && status.data_remaining().is_none() {
             return Err(anyhow!(
                 "Failed to select dedicated file {}: {}",
@@ -88,8 +90,7 @@ impl Icao9303 {
         // See ICAO 9303-10 section 3.6.2
         let file_bytes = file.to_be_bytes();
         let (status, data) =
-            self.nfc
-                .send_apdu(&[0x00, 0xA4, 0x02, 0x0C, 0x02, file_bytes[0], file_bytes[1]])?;
+            self.send_apdu(&[0x00, 0xA4, 0x02, 0x0C, 0x02, file_bytes[0], file_bytes[1]])?;
         if !status.is_success() && status.data_remaining().is_none() {
             return Err(anyhow!(
                 "Failed to select dedicated file {:04X}: {}",
@@ -114,7 +115,7 @@ impl Icao9303 {
         // Setting P2 to 0 means 'offset zero'.
         // Setting Le to 0x000000 means 'read all' with extended length.
         let apdu = [0x00, 0xB0, 0x80 | file, 0x00, 0x00, 0x00, 0x00];
-        let (status, data) = self.nfc.send_apdu(&apdu)?;
+        let (status, data) = self.send_apdu(&apdu)?;
         if !status.is_success() {
             // TODO: Special case 'not found'.
             return Err(anyhow!("Failed to read file: {}", status));
@@ -127,7 +128,7 @@ impl Icao9303 {
     ///
     /// See ICAO 9303-11 section 4.3.4.1.
     pub fn get_challenge(&mut self) -> Result<Vec<u8>> {
-        let (status, data) = self.nfc.send_apdu(&[0x00, 0x84, 0x00, 0x00, 0x08])?;
+        let (status, data) = self.send_apdu(&[0x00, 0x84, 0x00, 0x00, 0x08])?;
         if !status.is_success() {
             return Err(anyhow!("Failed to get challenge: {}", status));
         }
@@ -141,7 +142,7 @@ impl Icao9303 {
         let mut apdu = vec![0x00, 0x82, 0x00, 0x00, 0x28];
         apdu.extend_from_slice(data);
         apdu.push(0x00);
-        let (status, data) = self.nfc.send_apdu(&apdu)?;
+        let (status, data) = self.send_apdu(&apdu)?;
         if !status.is_success() {
             return Err(anyhow!("Failed to authenticate: {}", status));
         }
@@ -154,9 +155,7 @@ impl Icao9303 {
         // Select by file identifier
         // See ISO/IEC 7816-4 section 11.2.2
         // See ICAO 9303-10 section 3.6.2
-        let (status, data) = self
-            .nfc
-            .send_apdu(&[0x00, 0xA4, 0x02, 0x0C, 0x02, file[0], file[1]])?;
+        let (status, data) = self.send_apdu(&[0x00, 0xA4, 0x02, 0x0C, 0x02, file[0], file[1]])?;
         if !status.is_success() && status.data_remaining().is_none() {
             return Err(anyhow!("Failed to select file: {}", status));
         }
@@ -165,9 +164,7 @@ impl Icao9303 {
         // Read file
         // Requesting 0xFF bytes is a hack to get the full file content.
         // TODO: Implement proper handling.
-        let (status, data) = self
-            .nfc
-            .send_apdu(&[0x00, 0xB0, 0x00, 0x00, 0x00, 0x00, 0xFF])?;
+        let (status, data) = self.send_apdu(&[0x00, 0xB0, 0x00, 0x00, 0x00, 0x00, 0xFF])?;
         if !status.is_success() {
             return Err(anyhow!("Failed to read file: {}", status));
         }
@@ -177,7 +174,66 @@ impl Icao9303 {
     }
 
     pub fn send_apdu(&mut self, apdu: &[u8]) -> Result<(StatusWord, Vec<u8>)> {
-        self.nfc.send_apdu(apdu)
+        let protected_apdu = self.secure_messaging.enc_apdu(apdu)?;
+        let (status, data) = self.nfc.send_apdu(&protected_apdu)?;
+
+        // TODO: On SM error card will revert to plain APDU.
+        let data = self.secure_messaging.dec_response(status, &data)?;
+        Ok((status, data))
+    }
+
+    pub fn basic_access_control(&mut self, mrz: &str) -> Result<()> {
+        let mut rng = rand::thread_rng();
+
+        // Compute local randomness
+        let rnd_ifd: [u8; 8] = rng.gen();
+        let k_ifd: [u8; 16] = rng.gen();
+
+        // Compute encryption / authentication keys from MRZ
+        let seed = seed_from_mrz(mrz);
+        let (kenc, kmac) = derive_keys(&seed);
+
+        // GET CHALLENGE
+        let rnd_ic = self.get_challenge()?;
+
+        // Construct authentication data
+        let mut msg = vec![];
+        msg.extend_from_slice(&rnd_ifd);
+        msg.extend_from_slice(&rnd_ic);
+        msg.extend_from_slice(&k_ifd);
+        enc_3des(&kenc, &mut msg);
+        msg.extend(mac_3des(&kmac, &msg));
+
+        // EXTERNAL AUTHENTICATE
+        let mut resp_data = self.external_authenticate(&msg)?;
+        ensure!(resp_data.len() == 40);
+
+        // Check MAC and decrypt response
+        let mac = mac_3des(&kmac, &resp_data[..32]);
+        ensure!(&resp_data[32..] == &mac[..]);
+        dec_3des(&kenc, &mut resp_data[..32]);
+        let resp_data = &resp_data[..32];
+
+        // Check nonce consistency
+        ensure!(&resp_data[0..8] == &rnd_ic[..]);
+        ensure!(&resp_data[8..16] == &rnd_ifd[..]);
+        let k_ic: [u8; 16] = resp_data[16..].try_into().unwrap();
+
+        // Construct seed and ssc for session keys
+        let seed: [u8; 16] = array::from_fn(|i| k_ifd[i] ^ k_ic[i]);
+
+        // Construct initial send sequence counter
+        // See ICAO 9303-10 section 9.8.6.3
+        let mut ssc_bytes = vec![];
+        ssc_bytes.extend_from_slice(&rnd_ic[4..]);
+        ssc_bytes.extend_from_slice(&rnd_ifd[4..]);
+        let ssc: u64 = u64::from_be_bytes(ssc_bytes[..8].try_into().unwrap());
+
+        // Add TDES session keys to secure messaging
+        let tdes = TDesSM::from_seed(seed, ssc);
+        self.secure_messaging = Box::new(tdes);
+
+        Ok(())
     }
 }
 
@@ -195,79 +251,22 @@ fn main() -> Result<()> {
 
     // Read CardAccess file using short EF.
     // Presence means PACE is supported.
-    // card.select_master_file()?;
+    println!("=== Select master file.");
+    card.select_master_file()?;
+    println!("=== Read CardAccess.");
     let data = card.read_binary_short_ef(0x1C)?;
     println!("CardAccess: {}", hex::encode(data));
 
-    // Initiate Basic Authentication.
+    println!("=== Basic Access Control.");
+    let mrz = env::var("MRZ")?;
+    card.basic_access_control(&mrz)?;
 
-    // Read MRZ from environment variable.
-    let mrz_str = env::var("MRZ")?;
-    println!("Using MRZ: {}", mrz_str);
-
-    // Compute encryption / authentication keys from MRZ
-    let (kenc, kmac) = derive_keys(&seed_from_mrz(&mrz_str));
-    println!("kenc: {}", hex::encode(kenc));
-    println!("kmac: {}", hex::encode(kmac));
-
-    // GET CHALLENGE
-    let rnd_ic = card.get_challenge()?;
-    println!("rnd.ic: {}", hex::encode(&rnd_ic));
-
-    let mut rng = rand::thread_rng();
-    let rnd_ifd: [u8; 8] = rng.gen();
-    let k_ifd: [u8; 16] = rng.gen();
-    println!("rnd.ifd: {}", hex::encode(rnd_ifd));
-    println!("k.ifd: {}", hex::encode(k_ifd));
-
-    let mut msg = vec![];
-    msg.extend_from_slice(&rnd_ifd);
-    msg.extend_from_slice(&rnd_ic);
-    msg.extend_from_slice(&k_ifd);
-
-    enc_3des(&kenc, &mut msg);
-    msg.extend(mac_3des(&kmac, &msg));
-
-    // EXTERNAL AUTHENTICATE
-    let mut resp_data = card.external_authenticate(&msg)?;
-    println!("Response: {}", hex::encode(&resp_data));
-    ensure!(resp_data.len() == 40);
-
-    // Check MAC and decrypt response
-    let mac = mac_3des(&kmac, &resp_data[..32]);
-    println!("MAC: {}", hex::encode(mac));
-    ensure!(&resp_data[32..] == &mac[..]);
-    dec_3des(&kenc, &mut resp_data[..32]);
-    let resp_data = &resp_data[..32];
-
-    // Check nonce consistency
-    ensure!(&resp_data[0..8] == &rnd_ic[..]);
-    ensure!(&resp_data[8..16] == &rnd_ifd[..]);
-    let k_ic: [u8; 16] = resp_data[16..].try_into().unwrap();
-
-    println!("k.ic: {}", hex::encode(k_ic));
-
-    // Construct seed for session keys
-    let seed: [u8; 16] = array::from_fn(|i| k_ifd[i] ^ k_ic[i]);
-    let (ksenc, ksmac) = derive_keys(&seed);
-
-    // Construct send sequence counter
-    // See ICAO 9303-10 section 9.8.6.3
-    let mut ssc_bytes = vec![];
-    ssc_bytes.extend_from_slice(&rnd_ic[4..]);
-    ssc_bytes.extend_from_slice(&rnd_ifd[4..]);
-    let mut ssc: u64 = u64::from_be_bytes(ssc_bytes[..8].try_into().unwrap());
-
-    println!("ks_enc: {}", hex::encode(ksenc));
-    println!("ks_mac: {}", hex::encode(ksmac));
-    println!("ssc: {:016X}", ssc);
-
-    // Select EF.COM (00 A4 02 0C 02 01 01)
-    let apdu = [0x00, 0xA4, 0x02, 0x0C, 0x02, 0x01, 0x01];
-    ssc = ssc.wrapping_add(1);
-    let papdu = enc_apdu((ksenc, ksmac), ssc, &apdu);
-    let (status, data) = card.send_apdu(&papdu)?;
-    println!("Response: {}\nData: {}", status, hex::encode(&data));
+    // Should be secured now!
+    println!("=== Select master file.");
+    card.select_master_file()?;
+    println!("=== Read CardAccess.");
+    let data = card.read_binary_short_ef(0x1C)?;
+    println!("CardAccess: {}", hex::encode(data));
 
     Ok(())
 }
@@ -293,32 +292,194 @@ pub fn derive_key(seed: &[u8; 16], counter: u32) -> [u8; 16] {
     key
 }
 
-pub fn enc_apdu((kenc, kmac): ([u8; 16], [u8; 16]), ssc: u64, apdu: &[u8]) -> Vec<u8> {
-    let mut apdu = apdu.to_vec();
-    apdu[0] |= 0x0C; // Set SM bit
-    let mut cmd_header = apdu[0..4].to_vec();
-    cmd_header.extend_from_slice(&[0x80, 0x00, 0x00, 0x00]); // Pad
-    let mut cmd_data = apdu[5..].to_vec();
-    cmd_data.push(0x80);
-    while cmd_data.len() % 8 != 0 {
-        cmd_data.push(0x00);
-    }
-    enc_3des(&kenc, &mut cmd_data);
+pub trait SecureMessaging {
+    fn enc_apdu(&mut self, apdu: &[u8]) -> Result<Vec<u8>>;
+    fn dec_response(&mut self, status: StatusWord, resp: &[u8]) -> Result<Vec<u8>>;
+}
 
-    // Compute MAC
-    let mut n = ssc.to_be_bytes().to_vec();
-    n.extend_from_slice(&cmd_header);
-    n.extend_from_slice(&[0x87, 0x09, 0x01]);
-    n.extend_from_slice(&cmd_data);
-    let mac = mac_3des(&kmac, &n);
-    let mut papdu = apdu[0..4].to_vec();
-    papdu.push(0x15); // TODO: Length?
-    papdu.extend_from_slice(&[0x87, 0x09, 0x01]);
-    papdu.extend_from_slice(&cmd_data);
-    papdu.extend_from_slice(&[0x8E, 0x08]);
-    papdu.extend_from_slice(&mac);
-    papdu.push(0x00);
-    papdu
+pub struct PlainText;
+
+impl SecureMessaging for PlainText {
+    fn enc_apdu(&mut self, apdu: &[u8]) -> Result<Vec<u8>> {
+        Ok(apdu.to_vec())
+    }
+
+    fn dec_response(&mut self, _status: StatusWord, resp: &[u8]) -> Result<Vec<u8>> {
+        Ok(resp.to_vec())
+    }
+}
+
+pub struct TDesSM {
+    kenc: [u8; 16],
+    kmac: [u8; 16],
+    ssc: u64,
+}
+
+impl TDesSM {
+    pub fn from_seed(seed: [u8; 16], ssc: u64) -> Self {
+        let (kenc, kmac) = derive_keys(&seed);
+        Self { kenc, kmac, ssc }
+    }
+}
+
+impl SecureMessaging for TDesSM {
+    fn enc_apdu(&mut self, apdu: &[u8]) -> Result<Vec<u8>> {
+        ensure!(apdu.len() >= 4);
+        ensure!(apdu.len() <= 128); // TODO: What is the real maximum?
+        println!("apdu: {}", hex::encode(apdu));
+
+        // Parse APDU
+        // See ISO 7816-4 section 5.2
+        let (header, apdu) = apdu.split_at(4);
+        let (lc, data, le) = if apdu.is_empty() {
+            // No data, no Le
+            (&apdu[0..0], &apdu[0..0], &apdu[0..0])
+        } else if apdu[0] != 0x00 {
+            // Short lengths
+            if apdu.len() == 1 {
+                // No data, only Le
+                (&apdu[0..0], &apdu[0..0], &apdu[0..1])
+            } else {
+                let lc = apdu[0] as usize;
+                (&apdu[0..1], &apdu[1..lc + 1], &apdu[lc + 1..])
+            }
+        } else if apdu.len() == 3 {
+            // Extended lengths, Le only
+            (&apdu[0..0], &apdu[0..0], &apdu[1..3])
+        } else {
+            ensure!(apdu.len() > 3);
+            // Extended lengths with data
+            let lc = &apdu[1..2];
+            let nc = u16::from_be_bytes(lc.try_into().unwrap()) as usize;
+            ensure!(apdu.len() >= 3 + nc);
+            (&apdu[1..3], &apdu[3..nc + 3], &apdu[nc + 3..])
+        };
+        let ins_even = header[1] & 1 == 0;
+        let extended_length = lc.len() > 1 || le.len() > 1;
+
+        // Write header
+        let mut papdu = header.to_vec();
+        papdu[0] |= 0x0C; // Set SM bit
+
+        // Placeholder for data length
+        papdu.extend_from_slice(if extended_length {
+            &[0x00, 0x00, 0x00]
+        } else {
+            &[0x00]
+        });
+
+        // Write encrypted data
+        if !data.is_empty() {
+            let mut payload = data.to_vec();
+            pad(&mut payload);
+            enc_3des(&self.kenc, &mut payload);
+            papdu.push(if ins_even { 0x87 } else { 0x85 });
+            papdu.push((payload.len() + 1) as u8);
+            papdu.push(0x01); // Tag for 80 00* padding
+            papdu.extend_from_slice(&payload);
+        }
+
+        // Write Le
+        if !le.is_empty() {
+            papdu.push(0x97);
+            papdu.push(le.len() as u8);
+            papdu.extend_from_slice(le);
+        }
+
+        // Write MAC (mandatory)
+        {
+            // Increment send sequence counter
+            self.ssc = self.ssc.wrapping_add(1);
+
+            // Prepare MAC input
+            let mut message = Vec::new();
+            message.extend_from_slice(&self.ssc.to_be_bytes());
+            message.extend_from_slice(&papdu[..4]);
+            pad(&mut message);
+            if extended_length {
+                message.extend_from_slice(&papdu[7..]);
+            } else {
+                message.extend_from_slice(&papdu[5..]);
+            }
+
+            // Compute MAC and append to papdu
+            let mac = mac_3des(&self.kmac, &message);
+            papdu.push(0x8E);
+            papdu.push(mac.len() as u8);
+            papdu.extend_from_slice(&mac);
+        }
+
+        // Patch data length
+        if extended_length {
+            let len = papdu.len() - 7;
+            papdu[5] = (len >> 8) as u8;
+            papdu[6] = (len & 0xFF) as u8;
+        } else {
+            papdu[4] = (papdu.len() - 5) as u8;
+        }
+
+        // Write Le
+        if extended_length {
+            papdu.extend_from_slice(&[0x00, 0x00]);
+        } else {
+            papdu.extend_from_slice(&[0x00]);
+        };
+
+        Ok(papdu)
+    }
+
+    fn dec_response(&mut self, status: StatusWord, resp: &[u8]) -> Result<Vec<u8>> {
+        ensure!(resp.len() >= 14);
+
+        // Split off DO'8E object containing MAC
+        let (resp, mac) = resp.split_at(resp.len() - 10);
+        ensure!(mac[0] == 0x8E);
+        ensure!(mac[1] == 0x08);
+        let mac = &mac[2..];
+
+        // Compute and verify MAC
+        self.ssc = self.ssc.wrapping_add(1);
+        let mut n = self.ssc.to_be_bytes().to_vec();
+        n.extend_from_slice(resp);
+        let mac2 = mac_3des(&self.kmac, &n);
+        println!("mac: {}", hex::encode(mac2));
+        ensure!(mac == mac2);
+
+        // Split off DO'99 object and check (redundant) status word.
+        // TODO: DO'99 is optional, so we should check if it's present.
+        // TODO: DO'99 is allowed to be empty.
+        let (resp, do99) = resp.split_at(resp.len() - 4);
+        ensure!(do99[0] == 0x99);
+        ensure!(do99[1] == 0x02);
+        ensure!(do99[2] == status.sw1());
+        ensure!(do99[3] == status.sw2());
+
+        // If no data remaining there was no response data
+        if resp.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Decrypt DO'87 response data object
+        // TODO: Allow for trailing data.
+        ensure!(resp.len() >= 11);
+        ensure!(resp[0] == 0x85 || resp[0] == 0x87);
+        ensure!(resp[1] == (resp.len() - 2) as u8);
+        ensure!(resp[2] == 0x01);
+        let mut resp = resp[3..].to_vec();
+        dec_3des(&self.kenc, &mut resp);
+        let length = resp
+            .iter()
+            .rposition(|&x| x == 0x80)
+            .ok_or(anyhow!("Unpadding failed."))?;
+        resp.truncate(length);
+
+        Ok(resp)
+    }
+}
+
+pub fn pad(bytes: &mut Vec<u8>) {
+    bytes.push(0x80);
+    bytes.resize(bytes.len().next_multiple_of(8), 0x00);
 }
 
 #[cfg(test)]
@@ -337,6 +498,7 @@ mod tests {
         assert_eq!(kmac, hex!("7962D9ECE03D1ACD4C76089DCE131543"));
     }
 
+    // Example from ICAO 9303-11 section D.2
     #[test]
     fn test_derive_keys() {
         let k_seed = hex!("0036D272F5C350ACAC50C3F572D23600");
@@ -345,16 +507,40 @@ mod tests {
         assert_eq!(kmac, hex!("F1CB1F1FB5ADF208806B89DC579DC1F8"));
     }
 
+    // Example from ICAO 9303-11 section D.4
     #[test]
-    fn test_enc_apdu() {
+    fn test_tdes_sm() {
         let seed = hex!("0036D272F5C350ACAC50C3F572D23600");
-        let keys = derive_keys(&seed);
-        let ssc = 0x887022120C06C227;
-        let apdu = hex!("00A4020C02011E");
-        let enc = enc_apdu(keys, ssc, &apdu);
+        let ssc = 0x887022120C06C226;
+        let mut tdes = TDesSM::from_seed(seed, ssc);
+
+        // Select EF.COM
+        let apdu = hex!("00 A4 02 0C 02 01 1E");
+        let papdu = tdes.enc_apdu(&apdu).unwrap();
         assert_eq!(
-            enc,
+            papdu,
             hex!("0CA4020C158709016375432908C044F68E08BF8B92D635FF24F800")
         );
+        let rapdu = hex!("990290008E08FA855A5D4C50A8ED");
+        let dec = tdes.dec_response(0x9000.into(), &rapdu).unwrap();
+        assert_eq!(dec, hex!(""));
+
+        // Read Binary of first four bytes
+        let apdu = hex!("00 B0 00 00 04");
+        let papdu = tdes.enc_apdu(&apdu).unwrap();
+        assert_eq!(papdu, hex!("0CB000000D9701048E08ED6705417E96BA5500"));
+        let rapdu = hex!("8709019FF0EC34F9922651990290008E08AD55CC17140B2DED");
+        let data = tdes.dec_response(0x9000.into(), &rapdu).unwrap();
+        assert_eq!(data, hex!("60145F01"));
+
+        // Read Binary of remaining 18 bytes from offset 4
+        let apdu = hex!("00 B0 00 04 12");
+        let papdu = tdes.enc_apdu(&apdu).unwrap();
+        assert_eq!(papdu, hex!("0CB000040D9701128E082EA28A70F3C7B53500"));
+        let rapdu = hex!(
+            "871901FB9235F4E4037F2327DCC8964F1F9B8C30F42C8E2FFF224A990290008E08C8B2787EAEA07D74"
+        );
+        let data = tdes.dec_response(0x9000.into(), &rapdu).unwrap();
+        assert_eq!(data, hex!("04303130365F36063034303030305C026175"));
     }
 }

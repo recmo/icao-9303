@@ -15,6 +15,12 @@ pub fn set_parity_bits(key: &mut [u8]) {
     }
 }
 
+pub struct DesMac {
+    des: (Des, Des),
+    state: [u8; 8],
+    len: usize,
+}
+
 /// Retail MAC (ISO 9797-1 mode 3) using DES.
 // See <https://crypto.stackexchange.com/questions/18951/what-are-options-to-compute-des-retail-mac-aka-iso-9797-1-mode-3-under-pkcs11>
 pub fn mac_3des(key: &[u8; 16], msg: &[u8]) -> [u8; 8] {

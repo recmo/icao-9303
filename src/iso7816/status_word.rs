@@ -6,6 +6,14 @@ use std::fmt::{self, Display, Formatter};
 pub struct StatusWord(u16);
 
 impl StatusWord {
+    pub fn sw1(self) -> u8 {
+        (self.0 >> 8) as u8
+    }
+
+    pub fn sw2(self) -> u8 {
+        (self.0 & 0xFF) as u8
+    }
+
     pub fn is_success(self) -> bool {
         matches!(self.0, 0x9000 | 0x6100..=0x61FF)
     }

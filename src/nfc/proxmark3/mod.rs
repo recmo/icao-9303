@@ -140,7 +140,7 @@ impl Proxmark3 {
         packet.put_u32_le(0x61334d50); // magic 'PM3a'
         packet.put_u16_le(data.len() as u16 | (if ng { 1 << 15 } else { 0 })); // len and NG flag
         packet.put_u16_le(command); // cmd
-        packet.put_slice(&data); // data
+        packet.put_slice(data); // data
         if self.crc {
             // Add CRC_14443_A
             let crc = Crc::<u16>::new(&CRC_16_ISO_IEC_14443_3_A);
@@ -158,11 +158,11 @@ impl Proxmark3 {
         let mut header = [0_u8; 10];
         self.connection.read(&mut header)?;
 
-        // print!("Received ");
-        // for byte in header.iter() {
-        //     print!(" {:02X} ", byte);
-        // }
-        // print!(" | ");
+        print!("Received ");
+        for byte in header.iter() {
+            print!(" {:02X} ", byte);
+        }
+        print!(" | ");
 
         let mut header = &header[..];
         ensure!(header.get_u32_le() == 0x62334d50); // magic
@@ -175,19 +175,19 @@ impl Proxmark3 {
         // Read data
         let mut data = vec![0_u8; len as usize];
         self.connection.read(&mut data)?;
-        // for byte in data.iter() {
-        //     print!(" {:02X} ", byte);
-        // }
-        // print!(" | ");
+        for byte in data.iter() {
+            print!(" {:02X} ", byte);
+        }
+        print!(" | ");
 
         // Read CRC
         let mut crc = [0_u8; 2];
         self.connection.read(&mut crc)?;
         // TODO: Check CRC
-        // for byte in crc.iter() {
-        //     print!(" {:02X} ", byte);
-        // }
-        // println!("");
+        for byte in crc.iter() {
+            print!(" {:02X} ", byte);
+        }
+        println!("");
 
         Ok((status, cmd, data))
     }

@@ -14,6 +14,7 @@ use {
         asn1::{AnyRef, ObjectIdentifier},
         Header, Sequence, ValueOrd,
     },
+    hex_literal::hex,
     iso7816::StatusWord,
     rand::Rng,
     sha1::{Digest, Sha1},
@@ -247,6 +248,10 @@ fn main() -> Result<()> {
     nfc.connect()?;
     let mut card = Icao9303::new(nfc);
 
+    println!("=== Card capabilities");
+    card.send_apdu(&hex!("00CA 5F52 0F"))?;
+    card.send_apdu(&hex!("00CA 5F51 20"))?;
+
     // See ICAO 9303-10 figure 3 for file structure.
 
     // Read CardAccess file using short EF.
@@ -262,11 +267,36 @@ fn main() -> Result<()> {
     card.basic_access_control(&mrz)?;
 
     // Should be secured now!
-    println!("=== Select master file.");
+    println!("=== Master File.");
     card.select_master_file()?;
-    println!("=== Read CardAccess.");
-    let data = card.read_binary_short_ef(0x1C)?;
-    println!("CardAccess: {}", hex::encode(data));
+    if let Ok(data) = card.read_binary_short_ef(0x01) {
+        println!("==> EF.ATTR: {}", hex::encode(data));
+    }
+    if let Ok(data) = card.read_binary_short_ef(0x1C) {
+        println!("==> CardAccess: {}", hex::encode(data));
+    }
+    if let Ok(data) = card.read_binary_short_ef(0x1D) {
+        println!("==> CardSecurity: {}", hex::encode(data));
+    }
+    if let Ok(data) = card.read_binary_short_ef(0x1E) {
+        println!("==> EF.DIR: {}", hex::encode(data));
+    }
+
+    // Select LDS1 eMRTD Application
+    println!("=== LDS1 eMRTD Application.");
+    card.select_dedicated_file(&hex!("A0000002471001"))?;
+    if let Ok(data) = card.read_binary_short_ef(0x1E) {
+        println!("==> EF.COM: {}", hex::encode(data));
+    }
+    if let Ok(data) = card.read_binary_short_ef(0x01) {
+        println!("==> EF.DG1: {}", hex::encode(data));
+    }
+    // if let Ok(data) = card.read_binary_short_ef(0x02) {
+    //     println!("==> EF.DG2: {}", hex::encode(data));
+    // }
+    if let Ok(data) = card.read_binary_short_ef(0x1D) {
+        println!("==> EF.SOD: {}", hex::encode(data));
+    }
 
     Ok(())
 }

@@ -32,21 +32,21 @@ impl UsbConnection {
     }
 
     pub fn from_device(device: rusb::Device<GlobalContext>) -> Result<Self> {
-        let device_descriptor = device.device_descriptor()?;
-        eprintln!("Device descriptor: {:?}", device_descriptor);
-        for i in 0..device_descriptor.num_configurations() {
-            let config_descriptor = device.config_descriptor(i)?;
-            eprintln!("Config descriptor {i}: {:?}", config_descriptor);
-            for interface in config_descriptor.interfaces() {
-                eprintln!("  Interface: {:?}", interface.number());
-                for desc in interface.descriptors() {
-                    eprintln!("    Descriptor: {:?}", desc);
-                    for endpoint in desc.endpoint_descriptors() {
-                        eprintln!("      Endpoint: {:?}", endpoint);
-                    }
-                }
-            }
-        }
+        // let device_descriptor = device.device_descriptor()?;
+        // eprintln!("Device descriptor: {:?}", device_descriptor);
+        // for i in 0..device_descriptor.num_configurations() {
+        //     let config_descriptor = device.config_descriptor(i)?;
+        //     eprintln!("Config descriptor {i}: {:?}", config_descriptor);
+        //     for interface in config_descriptor.interfaces() {
+        //         eprintln!("  Interface: {:?}", interface.number());
+        //         for desc in interface.descriptors() {
+        //             eprintln!("    Descriptor: {:?}", desc);
+        //             for endpoint in desc.endpoint_descriptors() {
+        //                 eprintln!("      Endpoint: {:?}", endpoint);
+        //             }
+        //         }
+        //     }
+        // }
         let (bulk_in_endpoint, bulk_out_endpoint) = get_endpoints(&device).unwrap();
 
         let handle = device.open()?;
@@ -124,11 +124,9 @@ fn get_endpoints<T: UsbContext>(device: &rusb::Device<T>) -> Result<(u8, u8)> {
                         if addr & rusb::constants::LIBUSB_ENDPOINT_IN != 0 {
                             // Bulk IN Endpoint
                             bulk_in_endpoint = Some(addr);
-                            println!("Bulk IN Endpoint: 0x{:02X}", addr);
                         } else {
                             // Bulk OUT Endpoint
                             bulk_out_endpoint = Some(addr);
-                            println!("Bulk OUT Endpoint: 0x{:02X}", addr);
                         }
                     }
                 }

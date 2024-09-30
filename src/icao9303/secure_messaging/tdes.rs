@@ -164,9 +164,27 @@ impl SecureMessaging for TDesSM {
         // TODO: Allow for trailing data.
         ensure!(resp.len() >= 11);
         ensure!(resp[0] == 0x85 || resp[0] == 0x87);
-        ensure!(resp[1] == (resp.len() - 2) as u8);
-        ensure!(resp[2] == 0x01);
-        let mut resp = resp[3..].to_vec();
+        // Parse BER-TLV length
+        let (tl_len, length) = match resp[1] {
+            0x00..=0x7F => (2, resp[1] as usize),
+            0x81 => (3, resp[2] as usize),
+            0x82 => (4, u16::from_be_bytes([resp[2], resp[3]]) as usize),
+            0x83 => (
+                5,
+                u32::from_be_bytes([0, resp[2], resp[3], resp[4]]) as usize,
+            ),
+            0x84 => (
+                6,
+                u32::from_be_bytes([resp[2], resp[3], resp[4], resp[5]]) as usize,
+            ),
+            _ => {
+                return Err(anyhow!("Invalid BER-TLV length."));
+            }
+        };
+        let resp = &resp[tl_len..];
+        ensure!(resp.len() == length);
+        ensure!(resp[0] == 0x01);
+        let mut resp = resp[1..].to_vec();
         dec_3des(&self.kenc, &mut resp);
         let length = resp
             .iter()

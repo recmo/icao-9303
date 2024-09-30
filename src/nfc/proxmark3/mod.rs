@@ -28,6 +28,7 @@ pub enum Command {
     QuitSession = 0x0113,
 
     Hf14aReader = 0x0385,
+    Hf14bReader = 0x0305,
 }
 
 #[repr(i16)]
@@ -68,7 +69,7 @@ impl Proxmark3 {
         Proxmark3 {
             connection,
             crc: true,
-            trace: true,
+            trace: false,
         }
     }
 

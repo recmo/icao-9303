@@ -1,6 +1,7 @@
 use {
     super::Icao9303,
     anyhow::{anyhow, ensure, Result},
+    std::io::Write,
 };
 
 impl Icao9303 {
@@ -61,15 +62,57 @@ impl Icao9303 {
         ensure!(file <= 0x1F);
         // Note b8 of p2 must be set to 1 to indicate that a short file id is used.
         // Setting P2 to 0 means 'offset zero'.
-        // Setting Le to 0x000000 means 'read all' with extended length.
-        let apdu = [0x00, 0xB0, 0x80 | file, 0x00, 0x00, 0x00, 0x00];
-        let (status, data) = self.send_apdu(&apdu)?;
+        // Setting Le to 0x00 means read up to 256 / 65536.
+        let (status, data) = if self.extended_length {
+            // Setting Le to 0x000000 means 'read all' with extended length.
+            let apdu = [0x00, 0xB0, 0x80 | file, 0x00, 0x00, 0x00, 0x00];
+            self.send_apdu(&apdu)?
+        } else {
+            // Setting Le to 0x00 means 'read all'.
+            let apdu = [0x00, 0xB0, 0x80 | file, 0x00, 0xFF];
+            self.send_apdu(&apdu)?
+        };
         if !status.is_success() {
             // TODO: Special case 'not found'.
             return Err(anyhow!("Failed to read file: {}", status));
         }
         ensure!(status.data_remaining() == None);
         Ok(data)
+    }
+
+    pub fn read_file(&mut self, file: u8) -> Result<Vec<u8>> {
+        const MIN_SIZE: usize = 200; // TODO: Check this value.
+
+        // Read first bytes and make file current.
+        print!(".");
+        std::io::stdout().flush().unwrap();
+        let mut result = self.read_binary_short_ef(file)?;
+
+        // For short files we are done.
+        if result.len() < MIN_SIZE {
+            println!();
+            return Ok(result);
+        }
+
+        // Read remaining bytes.
+        loop {
+            // TODO: Use 0xB1 to read larger files.
+            ensure!(result.len() < 65536);
+            let offset = (result.len() as u16).to_be_bytes();
+            print!(".");
+            std::io::stdout().flush().unwrap();
+            let (status, data) = self.send_apdu(&[0x00, 0xB0, offset[0], offset[1], 0xFF])?;
+            if !status.is_success() {
+                return Err(anyhow!("Failed to read file: {}", status));
+            }
+            result.extend(&data);
+            if data.len() < MIN_SIZE {
+                break;
+            }
+        }
+
+        println!("");
+        Ok(result)
     }
 
     pub fn read_elementary_file(&mut self, file: u16) -> Result<Vec<u8>> {

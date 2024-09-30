@@ -4,43 +4,77 @@ mod crypto;
 mod icao9303;
 mod iso7816;
 mod nfc;
+mod tr03110;
+mod tr03111;
 
 use {
-    crate::{icao9303::Icao9303, nfc::Nfc},
-    anyhow::Result,
+    crate::{
+        icao9303::{Icao9303, SecurityInfo},
+        nfc::connect_reader,
+    },
+    anyhow::{anyhow, ensure, Result},
     der::{
-        asn1::{AnyRef, ObjectIdentifier},
-        Sequence, ValueOrd,
+        asn1::{AnyRef, SetOfVec},
+        Decode, Tagged,
     },
     hex_literal::hex,
     std::env,
+    tr03110::{oid_name, ChipAuthenticationInfo, ChipAuthenticationPublicKeyInfo},
+    tr03111::{ECAlgoParameters, EllipticCurve, ID_EC_PUBLIC_KEY},
 };
 
-#[repr(u16)]
-pub enum File {
-    //
-    MasterFile = 0x3F00,
-    Directory = 0x2F00,
-    Attributes = 0x2F01,
-
-    // ICAO 9303-10
-    CardAccess = 0x011C,
-    CardSecurity = 0x011D,
-}
-
-/// ICAO 9303 9.2 `SecurityInfo`
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Sequence, ValueOrd)]
-pub struct SecurityInfo<'a> {
-    protocol: ObjectIdentifier,
-    required_data: AnyRef<'a>,
-    optional_data: Option<AnyRef<'a>>,
-}
-
-pub const MY_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("0.4.0.127.0.7.2.2.4.2.4");
+// https://github.com/RfidResearchGroup/proxmark3/issues/1117
 
 fn main() -> Result<()> {
+    let ef_dg14 = include_bytes!("../dump/EF_DG14.bin").to_vec();
+
+    let tagged = AnyRef::from_der(&ef_dg14)?;
+    ensure!(tagged.tag() == 0x6E.try_into().unwrap());
+
+    // Find the Chip Authentication Info
+    let mut ca = None;
+    let mut pk = None;
+    for security_info in SetOfVec::<SecurityInfo>::from_der(tagged.value())?.iter() {
+        dbg!(security_info.protocol, oid_name(security_info.protocol));
+        if let Ok(found_ca) = ChipAuthenticationInfo::try_from(security_info) {
+            ca = Some(found_ca);
+        }
+        if let Ok(found_pk) = ChipAuthenticationPublicKeyInfo::try_from(security_info) {
+            pk = Some(found_pk);
+        }
+    }
+    let ca = ca.ok_or_else(|| anyhow!("Chip Authentication Info not found"))?;
+    let pk = pk.ok_or_else(|| anyhow!("Chip Authentication Public Key Info not found"))?;
+    println!("Using algorithm: {}", ca.algorithm_name());
+    dbg!(&ca);
+    dbg!(&pk);
+
+    ensure!(pk.chip_authentication_public_key.algorithm.algorithm == ID_EC_PUBLIC_KEY);
+    let ec_params = match pk.chip_authentication_public_key.algorithm.parameters {
+        ECAlgoParameters::EcParameters(ec_params) => ec_params,
+        _ => return Err(anyhow!("Expected ECParameters")),
+    };
+    dbg!(&ec_params);
+
+    let curve = EllipticCurve::from_parameters(&ec_params)?;
+    dbg!(curve);
+
+    let pub_key = pk
+        .chip_authentication_public_key
+        .subject_public_key
+        .as_bytes()
+        .unwrap();
+    let pub_key = curve.parse_point(pub_key)?;
+    dbg!(pub_key);
+
+    // TODO: Some passports only have ChipAuthenticationPublicKeyInfo but no ChipAuthenticationInfo. In this case, CA_(EC)DH_3DES_CBC_CBC should be assumed.
+
+    // My eMRTD uses BrainpoolP320R1, but instead of providing a named curve it has explicit parameters!
+
+    return Ok(());
+
     // Find and open the Proxmark3 device
-    let mut nfc = Nfc::new_proxmark3()?;
+    let mut nfc = connect_reader()?;
 
     // TODO: Implement full ICAO-9303-4.2 Chip Access Procedure.
 
@@ -48,12 +82,10 @@ fn main() -> Result<()> {
     nfc.connect()?;
     let mut card = Icao9303::new(nfc);
 
-    println!("=== Card capabilities");
-    card.send_apdu(&hex!("00CA 5F52 0F"))?;
-    card.send_apdu(&hex!("00CA 5F51 20"))?;
-    card.send_apdu(&hex!("00CA 0061 00"))?;
-
-    // 0a 78f7b10280738421406714
+    // println!("=== Card capabilities");
+    // card.send_apdu(&hex!("00CA 5F52 0F"))?;
+    // card.send_apdu(&hex!("00CA 5F51 20"))?;
+    // card.send_apdu(&hex!("00CA 0061 00"))?;
 
     // See ICAO 9303-10 figure 3 for file structure.
 
@@ -62,7 +94,7 @@ fn main() -> Result<()> {
     println!("=== Select master file.");
     card.select_master_file()?;
     println!("=== Read CardAccess.");
-    let data = card.read_binary_short_ef(0x1C)?;
+    let data = card.read_file(0x1C)?;
     println!("CardAccess: {}", hex::encode(data));
 
     println!("=== Basic Access Control.");
@@ -73,47 +105,49 @@ fn main() -> Result<()> {
     // Should be secured now!
     println!("=== Master File.");
     card.select_master_file()?;
-    if let Ok(data) = card.read_binary_short_ef(0x01) {
+    if let Ok(data) = card.read_file(0x01) {
         println!("==> EF.ATTR: {}", hex::encode(data));
     }
-    if let Ok(data) = card.read_binary_short_ef(0x1C) {
+    if let Ok(data) = card.read_file(0x1C) {
         println!("==> CardAccess: {}", hex::encode(data));
     }
-    if let Ok(data) = card.read_binary_short_ef(0x1D) {
+    if let Ok(data) = card.read_file(0x1D) {
         println!("==> CardSecurity: {}", hex::encode(data));
     }
-    if let Ok(data) = card.read_binary_short_ef(0x1E) {
+    if let Ok(data) = card.read_file(0x1E) {
         println!("==> EF.DIR: {}", hex::encode(data));
     }
 
     // Select LDS1 eMRTD Application
     println!("=== LDS1 eMRTD Application.");
     card.select_dedicated_file(&hex!("A0000002471001"))?;
-    if let Ok(data) = card.read_binary_short_ef(0x1E) {
+    if let Ok(data) = card.read_file(0x1E) {
         // EF.COM is a mandatory file.
         // This will contain a list of data groups that are present.
         println!("==> EF.COM: ({} B) {}", data.len(), hex::encode(data));
     }
-    if let Ok(data) = card.read_binary_short_ef(0x01) {
+    if let Ok(data) = card.read_file(0x01) {
         println!("==> EF.DG1: ({} B) {}", data.len(), hex::encode(data));
     }
-    // if let Ok(data) = card.read_binary_short_ef(0x03) {
-    //     // Finger print, not allowed to read.
-    //     println!("==> EF.DG3: ({} B) {}", data.len(), hex::encode(data));
-    // }
-    // if let Ok(data) = card.read_binary_short_ef(0x0E) {
-    //     println!("==> EF.DG14: ({} B) {}", data.len(), hex::encode(data));
-    // }
-    // if let Ok(data) = card.read_binary_short_ef(0x0F) {
-    //     println!("==> EF.DG15: {}", hex::encode(data));
-    // }
-    // if let Ok(data) = card.read_binary_short_ef(0x10) {
-    //     println!("==> EF.DG16: {}", hex::encode(data));
-    // }
-    // if let Ok(data) = card.read_binary_short_ef(0x1D) {
-    //     println!("==> EF.SOD: {}", hex::encode(data));
-    // }
-    // 60 18  5f0104 30313037 5f3606 303430303030 5c06 61 75 6c 6f 63 6e // DG1 DG2 DG12 DG15 DG3  DG14
+    if let Ok(data) = card.read_file(0x02) {
+        println!("==> EF.DG2: ({} B) {}", data.len(), hex::encode(data));
+    }
+    if let Ok(data) = card.read_file(0x03) {
+        // Finger print, not allowed to read.
+        println!("==> EF.DG3: ({} B) {}", data.len(), hex::encode(data));
+    }
+    if let Ok(data) = card.read_file(0x0E) {
+        println!("==> EF.DG14: ({} B) {}", data.len(), hex::encode(data));
+    }
+    if let Ok(data) = card.read_file(0x0F) {
+        println!("==> EF.DG15: ({} B) {}", data.len(), hex::encode(data));
+    }
+    if let Ok(data) = card.read_file(0x10) {
+        println!("==> EF.DG16: ({} B) {}", data.len(), hex::encode(data));
+    }
+    if let Ok(data) = card.read_file(0x1D) {
+        println!("==> EF.SOD: ({} B) {}", data.len(), hex::encode(data));
+    }
 
     // Active Authentication with fixed nonce
     // ICAO 9303-11 section 6.1
@@ -124,8 +158,11 @@ fn main() -> Result<()> {
     // Chip Authentication
     // ICAO 9303-11 section 6.2
     eprintln!("=== Chip Authentication");
-    let (_status, data) = card.send_apdu(&hex!("00 22 41A6  08  00 01 02 03 04 05 06 07  00"))?;
-    println!("==> Active Authentication: {}", hex::encode(data));
+    let ef_dg14 = card.read_file(0x0E)?;
+    println!("EF_DG14 = {}", hex::encode(&ef_dg14));
+
+    // let (_status, data) = card.send_apdu(&hex!("00 22 41A6  08  00 01 02 03 04 05 06 07  00"))?;
+    // println!("==> Active Authentication: {}", hex::encode(data));
 
     Ok(())
 }

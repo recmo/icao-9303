@@ -1,19 +1,13 @@
 use {
-    super::{parse_apdu, Cipher, SecureMessaging},
-    crate::{
-        icao9303::secure_messaging::{KDF_ENC, KDF_MAC},
-        iso7816::StatusWord,
-    },
+    super::{Cipher, KDF_ENC, KDF_MAC},
     aes::{Aes128, Aes192, Aes256},
-    anyhow::Result,
-    cbc::{Decryptor, Encryptor},
-    cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit},
-    cmac::{Cmac, Mac},
+    cbc::{Decryptor as CbcDec, Encryptor as CbcEnc},
+    cmac::Cmac,
     sha1::{Digest, Sha1},
     sha2::Sha256,
 };
 
-type Aes256Cbc = Encryptor<Aes256>;
+type Aes256Cbc = CbcEnc<Aes256>;
 type Aes256Cmac = Cmac<Aes256>;
 
 // All AES variantes have the same block size
@@ -63,22 +57,22 @@ impl Cipher for Aes256Cipher {
         16
     }
 
-    fn enc(&mut self, data: &mut [u8]) {
+    fn enc(&self, data: &mut [u8]) {
         todo!()
     }
 
-    fn dec(&mut self, data: &mut [u8]) {
+    fn dec(&self, data: &mut [u8]) {
         todo!()
     }
 
-    fn mac(&mut self, data: &[u8]) -> [u8; 8] {
+    fn mac(&self, data: &[u8]) -> [u8; 8] {
         todo!()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use {super::*, crate::crypto::seed_from_mrz, hex_literal::hex};
+    use {super::*, hex_literal::hex};
 
     // Example ICAO 9303-11 section G.2
     #[test]

@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-mod crypto;
 mod icao9303;
 mod iso7816;
 mod nfc;

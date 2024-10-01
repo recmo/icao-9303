@@ -1,6 +1,6 @@
 use {
     super::Icao9303,
-    anyhow::{anyhow, ensure, Result},
+    anyhow::{ensure, Result},
     der::asn1::ObjectIdentifier as Oid,
 };
 

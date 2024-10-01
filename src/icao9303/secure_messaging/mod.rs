@@ -4,10 +4,8 @@ pub mod aes;
 pub mod tdes;
 
 use {
-    crate::{
-        crypto::pad,
-        iso7816::{parse_apdu, StatusWord},
-    },
+    super::pad,
+    crate::iso7816::{parse_apdu, StatusWord},
     anyhow::{anyhow, ensure, Result},
 };
 
@@ -22,9 +20,9 @@ pub trait SecureMessaging {
 pub trait Cipher {
     fn block_size(&self) -> usize;
 
-    fn enc(&mut self, data: &mut [u8]);
-    fn dec(&mut self, data: &mut [u8]);
-    fn mac(&mut self, data: &[u8]) -> [u8; 8];
+    fn enc(&self, data: &mut [u8]);
+    fn dec(&self, data: &mut [u8]);
+    fn mac(&self, data: &[u8]) -> [u8; 8];
 }
 
 /// Secure Messaging protocol that passes APDUs and responses as-is.

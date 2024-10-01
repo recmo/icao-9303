@@ -1,14 +1,8 @@
 use {
     super::{
-        secure_messaging::{tdes::kdf, KDF_ENC, KDF_MAC},
-        Icao9303,
-    },
-    crate::{
-        crypto::{
-            pad, seed_from_mrz,
-            tdes::{dec_3des, enc_3des, mac_3des},
-        },
-        icao9303::secure_messaging::{tdes::TDesCipher, Encrypted},
+        pad,
+        secure_messaging::{tdes::TDesCipher, Cipher, Encrypted},
+        seed_from_mrz, Icao9303,
     },
     anyhow::{anyhow, ensure, Result},
     rand::Rng,
@@ -48,9 +42,7 @@ impl Icao9303 {
 
         // Compute encryption / authentication keys from MRZ
         let seed = seed_from_mrz(mrz);
-        // TODO: Use TDesCipher
-        let kenc = kdf(&seed, KDF_ENC);
-        let kmac = kdf(&seed, KDF_MAC);
+        let cipher = TDesCipher::from_seed(seed);
 
         // GET CHALLENGE
         let rnd_ic = self.get_challenge()?;
@@ -60,10 +52,10 @@ impl Icao9303 {
         msg.extend_from_slice(&rnd_ifd);
         msg.extend_from_slice(&rnd_ic);
         msg.extend_from_slice(&k_ifd);
-        enc_3des(&kenc, &mut msg);
+        cipher.enc(&mut msg);
         let mut msg_mac = msg.clone();
-        pad(&mut msg_mac, 8);
-        msg.extend(mac_3des(&kmac, &msg_mac));
+        pad(&mut msg_mac, cipher.block_size());
+        msg.extend(cipher.mac(&msg_mac));
 
         // EXTERNAL AUTHENTICATE
         let mut resp_data = self.external_authenticate(&msg)?;
@@ -71,10 +63,10 @@ impl Icao9303 {
 
         // Check MAC and decrypt response
         let mut msg_mac = resp_data[..32].to_vec();
-        pad(&mut msg_mac, 8);
-        let mac = mac_3des(&kmac, &msg_mac);
+        pad(&mut msg_mac, cipher.block_size());
+        let mac = cipher.mac(&msg_mac);
         ensure!(&resp_data[32..] == &mac[..]);
-        dec_3des(&kenc, &mut resp_data[..32]);
+        cipher.dec(&mut resp_data[..32]);
         let resp_data = &resp_data[..32];
 
         // Check nonce consistency

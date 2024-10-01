@@ -8,6 +8,8 @@ use {
         asn1::{BitString, Int, IntRef, Null, ObjectIdentifier as Oid, OctetString},
         Any, Choice, Sequence, ValueOrd,
     },
+    elliptic_curve::EllipticCurvePoint,
+    prime_field::PrimeFieldElement,
     ruint::aliases::U320,
 };
 
@@ -72,6 +74,25 @@ pub type ECPoint = OctetString;
 /// TODO: Deduplicate and move to some utility module
 const fn oid(oid: &'static str) -> Oid {
     Oid::new_unwrap(oid)
+}
+
+/// Elliptic Curve Key Agreement
+/// See TR-03111 section 4.3.1
+pub fn ecka<'a>(
+    private_key: PrimeFieldElement,
+    public_key: EllipticCurvePoint<'a>,
+) -> Result<(EllipticCurvePoint<'a>, Vec<u8>)> {
+    let curve = public_key.curve();
+    ensure!(private_key.field() == curve.scalar_field());
+
+    let h = curve.cofactor();
+    let l = curve.scalar_field().el_from_uint(h).inv().unwrap();
+    let q = h * public_key;
+    let s_ab = private_key * l * q;
+    ensure!(s_ab != curve.pt_infinity());
+    let z_ab = s_ab.x().unwrap().fe2os();
+
+    Ok((s_ab, z_ab))
 }
 
 pub fn parse_uint(int: &Int) -> Result<U320> {

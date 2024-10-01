@@ -1,8 +1,9 @@
 use {
+    rand::Rng,
     ruint::aliases::{U320, U64},
     std::{
-        fmt::{self, Debug, Display, Formatter},
-        ops::{Add, AddAssign, Div, Mul, MulAssign, Neg},
+        fmt::{self, Debug, Formatter},
+        ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub},
     },
 };
 
@@ -86,6 +87,15 @@ impl PrimeField {
         PrimeFieldElement { field: self, value }
     }
 
+    pub fn random_nonzero(&self, rng: &mut impl Rng) -> PrimeFieldElement {
+        loop {
+            let value = rng.gen::<U320>() % self.modulus;
+            if value != U320::ZERO {
+                return self.el_from_monty(value);
+            }
+        }
+    }
+
     /// Implements TR-03111 section 3.1.3 OS2FE procedure.
     ///
     /// Note that it does not have any requirement on the input length and requires
@@ -129,6 +139,13 @@ impl PrimeFieldElement<'_> {
         self.value
     }
 
+    /// Implements TR-03111 section 3.1.3 FE2OS procedure.
+    pub fn fe2os(&self) -> Vec<u8> {
+        let mut result = self.to_uint().to_be_bytes_vec();
+        // Trim excess leading zeros.
+        result.split_off(result.len() - self.field.byte_len())
+    }
+
     /// Exponentiation
     ///
     /// Run time may depend on the exponent.
@@ -158,17 +175,26 @@ impl PrimeFieldElement<'_> {
     }
 }
 
-impl Debug for PrimeFieldElement<'_> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        <U320 as Debug>::fmt(&self.to_uint(), f)
-    }
+macro_rules! forward_fmt {
+    ($($type:ty),+) => {
+        $(
+            impl $type for PrimeFieldElement<'_> {
+                fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+                    <U320 as $type>::fmt(&self.to_uint(), f)
+                }
+            }
+        )+
+    };
 }
 
-impl Display for PrimeFieldElement<'_> {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        <U320 as Display>::fmt(&self.to_uint(), f)
-    }
-}
+forward_fmt!(
+    fmt::Debug,
+    fmt::Display,
+    fmt::Binary,
+    fmt::Octal,
+    fmt::LowerHex,
+    fmt::UpperHex
+);
 
 impl Add for PrimeFieldElement<'_> {
     type Output = Self;
@@ -180,6 +206,16 @@ impl Add for PrimeFieldElement<'_> {
             field: self.field,
             value: self.value.add_mod(other.value, self.field.modulus),
         }
+    }
+}
+
+impl Sub for PrimeFieldElement<'_> {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, other: Self) -> Self {
+        assert_eq!(self.field, other.field);
+        self + (-other)
     }
 }
 

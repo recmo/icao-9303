@@ -20,7 +20,7 @@ use {
     hex_literal::hex,
     std::env,
     tr03110::{oid_name, ChipAuthenticationInfo, ChipAuthenticationPublicKeyInfo},
-    tr03111::{ECAlgoParameters, EllipticCurve, ID_EC_PUBLIC_KEY},
+    tr03111::{ecka, ECAlgoParameters, EllipticCurve, ID_EC_PUBLIC_KEY},
 };
 
 // https://github.com/RfidResearchGroup/proxmark3/issues/1117
@@ -46,26 +46,33 @@ fn main() -> Result<()> {
     let ca = ca.ok_or_else(|| anyhow!("Chip Authentication Info not found"))?;
     let pk = pk.ok_or_else(|| anyhow!("Chip Authentication Public Key Info not found"))?;
     println!("Using algorithm: {}", ca.algorithm_name());
-    dbg!(&ca);
-    dbg!(&pk);
 
     ensure!(pk.chip_authentication_public_key.algorithm.algorithm == ID_EC_PUBLIC_KEY);
     let ec_params = match pk.chip_authentication_public_key.algorithm.parameters {
         ECAlgoParameters::EcParameters(ec_params) => ec_params,
         _ => return Err(anyhow!("Expected ECParameters")),
     };
-    dbg!(&ec_params);
 
     let curve = EllipticCurve::from_parameters(&ec_params)?;
     dbg!(curve);
 
-    let pub_key = pk
+    let card_public_key = pk
         .chip_authentication_public_key
         .subject_public_key
         .as_bytes()
         .unwrap();
-    let pub_key = curve.parse_point(pub_key)?;
-    dbg!(pub_key);
+    let card_public_key = curve.parse_point(card_public_key)?;
+    dbg!(card_public_key);
+
+    // Generate keypair
+    let mut rng = rand::thread_rng();
+    let private_key = curve.scalar_field().random_nonzero(&mut rng);
+    let public_key = private_key * curve.generator();
+    dbg!(private_key);
+    dbg!(public_key);
+
+    let (s, z) = ecka(private_key, card_public_key)?;
+    dbg!(s, hex::encode(z));
 
     // TODO: Some passports only have ChipAuthenticationPublicKeyInfo but no ChipAuthenticationInfo. In this case, CA_(EC)DH_3DES_CBC_CBC should be assumed.
 

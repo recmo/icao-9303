@@ -37,6 +37,7 @@ enum Coordinates<'a> {
 }
 
 impl EllipticCurve {
+    // TODO: ISO 7816 format (see TR-03111 section 5.1.2)
     pub fn from_parameters(params: &EcParameters) -> Result<Self> {
         ensure!(params.version == 1);
 
@@ -234,6 +235,7 @@ impl Add for EllipticCurvePoint<'_> {
 
     fn add(self, other: Self) -> Self::Output {
         assert_eq!(self.curve, other.curve);
+        // TODO: Use constant time inversions
         match (self.coordinates, other.coordinates) {
             (Coordinates::Infinity, _) => other,
             (_, Coordinates::Infinity) => self,

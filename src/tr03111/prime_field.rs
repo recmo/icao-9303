@@ -87,10 +87,15 @@ impl PrimeField {
         PrimeFieldElement { field: self, value }
     }
 
+    /// TR-03111 section 4.1.1 Algorithm 1
     pub fn random_nonzero(&self, rng: &mut impl Rng) -> PrimeFieldElement {
         loop {
-            let value = rng.gen::<U320>() % self.modulus;
-            if value != U320::ZERO {
+            let mut value = rng.gen::<U320>();
+            // Zero out the high bits.
+            for b in self.modulus().bit_len()..U320::BITS {
+                value.set_bit(b, false);
+            }
+            if value != U320::ZERO && value < self.modulus {
                 return self.el_from_monty(value);
             }
         }

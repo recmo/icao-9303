@@ -88,7 +88,7 @@ pub fn ecka<'a>(
     let h = curve.cofactor();
     let l = curve.scalar_field().el_from_uint(h).inv().unwrap();
     let q = h * public_key;
-    let s_ab = private_key * l * q;
+    let s_ab = (private_key * l) * q;
     ensure!(s_ab != curve.pt_infinity());
     let z_ab = s_ab.x().unwrap().fe2os();
 

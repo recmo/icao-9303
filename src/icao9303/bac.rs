@@ -1,6 +1,15 @@
 use {
-    super::{secure_messaging::TDesSM, Icao9303},
-    crate::crypto::tdes::{dec_3des, derive_keys, enc_3des, mac_3des, seed_from_mrz},
+    super::{
+        secure_messaging::{
+            tdes::{kdf, TDesSM},
+            KDF_ENC, KDF_MAC,
+        },
+        Icao9303,
+    },
+    crate::crypto::{
+        seed_from_mrz,
+        tdes::{dec_3des, enc_3des, mac_3des},
+    },
     anyhow::{anyhow, ensure, Result},
     rand::Rng,
     std::array,
@@ -39,7 +48,8 @@ impl Icao9303 {
 
         // Compute encryption / authentication keys from MRZ
         let seed = seed_from_mrz(mrz);
-        let (kenc, kmac) = derive_keys(&seed);
+        let kenc = kdf(&seed, KDF_ENC);
+        let kmac = kdf(&seed, KDF_MAC);
 
         // GET CHALLENGE
         let rnd_ic = self.get_challenge()?;

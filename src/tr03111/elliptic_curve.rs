@@ -82,7 +82,7 @@ impl EllipticCurve {
             cofactor,
             generator_monty: (U320::ZERO, U320::ZERO),
         };
-        let generator = curve.parse_point(params.base.as_bytes())?;
+        let generator = curve.from_bytes(params.base.as_bytes())?;
         curve.generator_monty = generator.as_monty().unwrap();
         Ok(curve)
     }
@@ -138,7 +138,8 @@ impl EllipticCurve {
         ))
     }
 
-    pub fn parse_point(&self, bytes: &[u8]) -> Result<EllipticCurvePoint> {
+    /// TR-03111 section 3.2
+    pub fn from_bytes(&self, bytes: &[u8]) -> Result<EllipticCurvePoint> {
         ensure!(!bytes.is_empty());
         let fe_len = self.base_field.byte_len();
         match bytes[0] {
@@ -176,6 +177,21 @@ impl EllipticCurve {
 impl EllipticCurvePoint<'_> {
     pub fn curve(&self) -> &EllipticCurve {
         self.curve
+    }
+
+    /// TR-03111 section 3.2
+    ///
+    /// TODO: Compressed?
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self.coordinates {
+            Coordinates::Infinity => vec![0x00],
+            Coordinates::Affine(x, y) => {
+                let mut bytes = vec![0x04];
+                bytes.extend_from_slice(&x.fe2os());
+                bytes.extend_from_slice(&y.fe2os());
+                bytes
+            }
+        }
     }
 
     pub fn as_monty(&self) -> Option<(U320, U320)> {

@@ -5,7 +5,6 @@ use {
         BlockEncryptMut as _, InnerIvInit as _, KeyInit as _,
     },
     des::{Des, TdesEde2},
-    sha1::{Digest, Sha1},
 };
 
 pub fn set_parity_bits(key: &mut [u8]) {
@@ -13,27 +12,6 @@ pub fn set_parity_bits(key: &mut [u8]) {
         *byte &= 0xFE;
         *byte |= 1 ^ (byte.count_ones() as u8 & 1);
     }
-}
-
-pub fn seed_from_mrz(mrz: &str) -> [u8; 16] {
-    let mut hasher = Sha1::new();
-    hasher.update(mrz.as_bytes());
-    let hash = hasher.finalize();
-    hash[0..16].try_into().unwrap()
-}
-
-pub fn derive_keys(seed: &[u8; 16]) -> ([u8; 16], [u8; 16]) {
-    (derive_key(seed, 1), derive_key(seed, 2))
-}
-
-pub fn derive_key(seed: &[u8; 16], counter: u32) -> [u8; 16] {
-    let mut hasher = Sha1::new();
-    hasher.update(seed);
-    hasher.update(counter.to_be_bytes());
-    let hash = hasher.finalize();
-    let mut key: [u8; 16] = hash[0..16].try_into().unwrap();
-    set_parity_bits(&mut key);
-    key
 }
 
 /// Retail MAC (ISO 9797-1 mode 3) using DES.
@@ -84,28 +62,7 @@ pub fn dec_3des(key: &[u8; 16], msg: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, hex_literal::hex};
-
-    /// Example from ICAO 9303-11 section D.2
-    #[test]
-    fn test_bac_example() {
-        let mrz = "L898902C<369080619406236";
-        let seed = seed_from_mrz(mrz);
-        assert_eq!(seed, hex!("239AB9CB282DAF66231DC5A4DF6BFBAE"));
-
-        let (kenc, kmac) = derive_keys(&seed);
-        assert_eq!(kenc, hex!("AB94FDECF2674FDFB9B391F85D7F76F2"));
-        assert_eq!(kmac, hex!("7962D9ECE03D1ACD4C76089DCE131543"));
-    }
-
-    // Example from ICAO 9303-11 section D.2
-    #[test]
-    fn test_derive_keys() {
-        let k_seed = hex!("0036D272F5C350ACAC50C3F572D23600");
-        let (kenc, kmac) = derive_keys(&k_seed);
-        assert_eq!(kenc, hex!("979EC13B1CBFE9DCD01AB0FED307EAE5"));
-        assert_eq!(kmac, hex!("F1CB1F1FB5ADF208806B89DC579DC1F8"));
-    }
+    use {super::*, crate::crypto::seed_from_mrz, hex_literal::hex};
 
     #[test]
     fn test_mac_3des() {

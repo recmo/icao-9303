@@ -1,15 +1,16 @@
 //! 3DES Secure Messasing
 
 use {
-    super::SecureMessaging,
+    super::{SecureMessaging, KDF_ENC, KDF_MAC},
     crate::{
         crypto::{
             pad,
-            tdes::{dec_3des, derive_keys, enc_3des, mac_3des},
+            tdes::{dec_3des, enc_3des, mac_3des, set_parity_bits},
         },
         iso7816::StatusWord,
     },
     anyhow::{anyhow, ensure, Result},
+    sha1::{Digest, Sha1},
 };
 
 pub struct TDesSM {
@@ -18,10 +19,23 @@ pub struct TDesSM {
     ssc: u64,
 }
 
+pub fn kdf(seed: &[u8; 16], counter: u32) -> [u8; 16] {
+    let mut hasher = Sha1::new();
+    hasher.update(seed);
+    hasher.update(counter.to_be_bytes());
+    let hash = hasher.finalize();
+    let mut key: [u8; 16] = hash[0..16].try_into().unwrap();
+    set_parity_bits(&mut key);
+    key
+}
+
 impl TDesSM {
     pub fn from_seed(seed: [u8; 16], ssc: u64) -> Self {
-        let (kenc, kmac) = derive_keys(&seed);
-        Self { kenc, kmac, ssc }
+        Self {
+            kenc: kdf(&seed, KDF_ENC),
+            kmac: kdf(&seed, KDF_MAC),
+            ssc,
+        }
     }
 }
 
@@ -198,7 +212,28 @@ impl SecureMessaging for TDesSM {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, hex_literal::hex};
+    use {super::*, crate::crypto::seed_from_mrz, hex_literal::hex};
+
+    /// Example from ICAO 9303-11 section D.2
+    #[test]
+    fn test_bac_example() {
+        let mrz = "L898902C<369080619406236";
+        let seed = seed_from_mrz(mrz);
+        assert_eq!(seed, hex!("239AB9CB282DAF66231DC5A4DF6BFBAE"));
+
+        let (kenc, kmac) = (kdf(&seed, KDF_ENC), kdf(&seed, KDF_MAC));
+        assert_eq!(kenc, hex!("AB94FDECF2674FDFB9B391F85D7F76F2"));
+        assert_eq!(kmac, hex!("7962D9ECE03D1ACD4C76089DCE131543"));
+    }
+
+    // Example from ICAO 9303-11 section D.2
+    #[test]
+    fn test_derive_keys() {
+        let k_seed = hex!("0036D272F5C350ACAC50C3F572D23600");
+        let (kenc, kmac) = (kdf(&k_seed, KDF_ENC), kdf(&k_seed, KDF_MAC));
+        assert_eq!(kenc, hex!("979EC13B1CBFE9DCD01AB0FED307EAE5"));
+        assert_eq!(kmac, hex!("F1CB1F1FB5ADF208806B89DC579DC1F8"));
+    }
 
     // Example from ICAO 9303-11 section D.4
     #[test]

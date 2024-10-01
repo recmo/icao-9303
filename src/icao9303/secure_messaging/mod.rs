@@ -1,9 +1,12 @@
 //! Secure Messaging
 
-mod tdes;
+pub mod aes;
+pub mod tdes;
 
-pub use tdes::TDesSM;
 use {crate::iso7816::StatusWord, anyhow::Result};
+
+pub const KDF_ENC: u32 = 1;
+pub const KDF_MAC: u32 = 2;
 
 pub trait SecureMessaging {
     fn enc_apdu(&mut self, apdu: &[u8]) -> Result<Vec<u8>>;

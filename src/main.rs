@@ -26,59 +26,9 @@ use {
 // https://github.com/RfidResearchGroup/proxmark3/issues/1117
 
 fn main() -> Result<()> {
-    let ef_dg14 = include_bytes!("../dump/EF_DG14.bin").to_vec();
-
-    let tagged = AnyRef::from_der(&ef_dg14)?;
-    ensure!(tagged.tag() == 0x6E.try_into().unwrap());
-
-    // Find the Chip Authentication Info
-    let mut ca = None;
-    let mut pk = None;
-    for security_info in SetOfVec::<SecurityInfo>::from_der(tagged.value())?.iter() {
-        dbg!(security_info.protocol, oid_name(security_info.protocol));
-        if let Ok(found_ca) = ChipAuthenticationInfo::try_from(security_info) {
-            ca = Some(found_ca);
-        }
-        if let Ok(found_pk) = ChipAuthenticationPublicKeyInfo::try_from(security_info) {
-            pk = Some(found_pk);
-        }
-    }
-    let ca = ca.ok_or_else(|| anyhow!("Chip Authentication Info not found"))?;
-    let pk = pk.ok_or_else(|| anyhow!("Chip Authentication Public Key Info not found"))?;
-    println!("Using algorithm: {}", ca.algorithm_name());
-
-    ensure!(pk.chip_authentication_public_key.algorithm.algorithm == ID_EC_PUBLIC_KEY);
-    let ec_params = match pk.chip_authentication_public_key.algorithm.parameters {
-        ECAlgoParameters::EcParameters(ec_params) => ec_params,
-        _ => return Err(anyhow!("Expected ECParameters")),
-    };
-
-    let curve = EllipticCurve::from_parameters(&ec_params)?;
-    dbg!(curve);
-
-    let card_public_key = pk
-        .chip_authentication_public_key
-        .subject_public_key
-        .as_bytes()
-        .unwrap();
-    let card_public_key = curve.parse_point(card_public_key)?;
-    dbg!(card_public_key);
-
-    // Generate keypair
-    let mut rng = rand::thread_rng();
-    let private_key = curve.scalar_field().random_nonzero(&mut rng);
-    let public_key = private_key * curve.generator();
-    dbg!(private_key);
-    dbg!(public_key);
-
-    let (s, z) = ecka(private_key, card_public_key)?;
-    dbg!(s, hex::encode(z));
-
     // TODO: Some passports only have ChipAuthenticationPublicKeyInfo but no ChipAuthenticationInfo. In this case, CA_(EC)DH_3DES_CBC_CBC should be assumed.
 
     // My eMRTD uses BrainpoolP320R1, but instead of providing a named curve it has explicit parameters!
-
-    return Ok(());
 
     // Find and open the Proxmark3 device
     let mut nfc = connect_reader()?;
@@ -133,16 +83,16 @@ fn main() -> Result<()> {
         // This will contain a list of data groups that are present.
         println!("==> EF.COM: ({} B) {}", data.len(), hex::encode(data));
     }
-    if let Ok(data) = card.read_file(0x01) {
-        println!("==> EF.DG1: ({} B) {}", data.len(), hex::encode(data));
-    }
-    if let Ok(data) = card.read_file(0x02) {
-        println!("==> EF.DG2: ({} B) {}", data.len(), hex::encode(data));
-    }
-    if let Ok(data) = card.read_file(0x03) {
-        // Finger print, not allowed to read.
-        println!("==> EF.DG3: ({} B) {}", data.len(), hex::encode(data));
-    }
+    // if let Ok(data) = card.read_file(0x01) {
+    //     println!("==> EF.DG1: ({} B) {}", data.len(), hex::encode(data));
+    // }
+    // if let Ok(data) = card.read_file(0x02) {
+    //     println!("==> EF.DG2: ({} B) {}", data.len(), hex::encode(data));
+    // }
+    // if let Ok(data) = card.read_file(0x03) {
+    //     // Finger print, not allowed to read.
+    //     println!("==> EF.DG3: ({} B) {}", data.len(), hex::encode(data));
+    // }
     if let Ok(data) = card.read_file(0x0E) {
         println!("==> EF.DG14: ({} B) {}", data.len(), hex::encode(data));
     }
@@ -170,6 +120,73 @@ fn main() -> Result<()> {
 
     // let (_status, data) = card.send_apdu(&hex!("00 22 41A6  08  00 01 02 03 04 05 06 07  00"))?;
     // println!("==> Active Authentication: {}", hex::encode(data));
+
+    // let ef_dg14 = include_bytes!("../dump/EF_DG14.bin").to_vec();
+
+    let tagged = AnyRef::from_der(&ef_dg14)?;
+    ensure!(tagged.tag() == 0x6E.try_into().unwrap());
+
+    // Find the Chip Authentication Info
+    let mut ca = None;
+    let mut pk = None;
+    for security_info in SetOfVec::<SecurityInfo>::from_der(tagged.value())?.iter() {
+        dbg!(security_info.protocol, oid_name(security_info.protocol));
+        if let Ok(found_ca) = ChipAuthenticationInfo::try_from(security_info) {
+            ca = Some(found_ca);
+        }
+        if let Ok(found_pk) = ChipAuthenticationPublicKeyInfo::try_from(security_info) {
+            pk = Some(found_pk);
+        }
+    }
+    let ca = ca.ok_or_else(|| anyhow!("Chip Authentication Info not found"))?;
+    let pk = pk.ok_or_else(|| anyhow!("Chip Authentication Public Key Info not found"))?;
+    println!("Using algorithm: {}", ca.algorithm_name());
+
+    ensure!(pk.chip_authentication_public_key.algorithm.algorithm == ID_EC_PUBLIC_KEY);
+    let ec_params = match pk.chip_authentication_public_key.algorithm.parameters {
+        ECAlgoParameters::EcParameters(ec_params) => ec_params,
+        _ => return Err(anyhow!("Expected ECParameters")),
+    };
+
+    let curve = EllipticCurve::from_parameters(&ec_params)?;
+    dbg!(curve);
+
+    let card_public_key = pk
+        .chip_authentication_public_key
+        .subject_public_key
+        .as_bytes()
+        .unwrap();
+    let card_public_key = curve.from_bytes(card_public_key)?;
+    dbg!(card_public_key);
+
+    // Generate ephemeral keypair
+    let mut rng = rand::thread_rng();
+    let private_key = curve.scalar_field().random_nonzero(&mut rng);
+    let public_key = private_key * curve.generator();
+    dbg!(private_key);
+    dbg!(public_key);
+
+    let (s, z) = ecka(private_key, card_public_key)?;
+    dbg!(s, hex::encode(z));
+
+    // Initiate Chip Authentication
+    // ICAO-9303-11 section 6.2
+    // 2. The terminal sends the public key to the eMRTD.
+    //
+    // For AES we need to use 6.2.4.2
+
+    // Send MSE Set AT to select the Chip Authentication protocol.
+    card.mset_at(ca.protocol, pk.key_id)?;
+
+    // Send the public key using general authenticate
+    let data = card.general_authenticate(&public_key.to_bytes())?;
+    println!("==> General Authenticate: {}", hex::encode(data));
+
+    // Keys should now have been changed.
+    card.select_master_file()?;
+
+    // 00 22 41 a4 0c 80 0b 04 00 7f 00 07 02 02 03 02 04
+    // 00 22 41 A4 0F 80 0A 04 00 7F 00 07 02 02 03 02 02 84 01 01
 
     Ok(())
 }

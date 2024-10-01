@@ -1,4 +1,5 @@
 mod bac;
+mod chip_authentication;
 mod files;
 mod secure_messaging;
 
@@ -36,8 +37,9 @@ impl Icao9303 {
         // println!("Sending APDU: {}", hex::encode(apdu));
         let protected_apdu = self.secure_messaging.enc_apdu(apdu)?;
         let (status, data) = self.nfc.send_apdu(&protected_apdu)?;
+        eprintln!("Status: {}", status);
 
-        // TODO: On SM error card will revert to plain APDU.
+        // TODO: On SM error card will revert to plain APDU. Check for SM error.
         let data = self.secure_messaging.dec_response(status, &data)?;
         //println!("Status: {}", status);
         //println!("Data: {}", hex::encode(&data));

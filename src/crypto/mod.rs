@@ -4,9 +4,9 @@ pub mod tdes;
 
 use sha1::{Digest, Sha1};
 
-pub fn pad(bytes: &mut Vec<u8>) {
+pub fn pad(bytes: &mut Vec<u8>, block_size: usize) {
     bytes.push(0x80);
-    bytes.resize(bytes.len().next_multiple_of(8), 0x00);
+    bytes.resize(bytes.len().next_multiple_of(block_size), 0x00);
 }
 
 pub fn seed_from_mrz(mrz: &str) -> [u8; 16] {

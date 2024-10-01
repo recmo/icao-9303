@@ -1,14 +1,14 @@
 use {
     super::{
-        secure_messaging::{
-            tdes::{kdf, TDesSM},
-            KDF_ENC, KDF_MAC,
-        },
+        secure_messaging::{tdes::kdf, KDF_ENC, KDF_MAC},
         Icao9303,
     },
-    crate::crypto::{
-        seed_from_mrz,
-        tdes::{dec_3des, enc_3des, mac_3des},
+    crate::{
+        crypto::{
+            pad, seed_from_mrz,
+            tdes::{dec_3des, enc_3des, mac_3des},
+        },
+        icao9303::secure_messaging::{tdes::TDesCipher, Encrypted},
     },
     anyhow::{anyhow, ensure, Result},
     rand::Rng,
@@ -48,6 +48,7 @@ impl Icao9303 {
 
         // Compute encryption / authentication keys from MRZ
         let seed = seed_from_mrz(mrz);
+        // TODO: Use TDesCipher
         let kenc = kdf(&seed, KDF_ENC);
         let kmac = kdf(&seed, KDF_MAC);
 
@@ -60,14 +61,18 @@ impl Icao9303 {
         msg.extend_from_slice(&rnd_ic);
         msg.extend_from_slice(&k_ifd);
         enc_3des(&kenc, &mut msg);
-        msg.extend(mac_3des(&kmac, &msg));
+        let mut msg_mac = msg.clone();
+        pad(&mut msg_mac, 8);
+        msg.extend(mac_3des(&kmac, &msg_mac));
 
         // EXTERNAL AUTHENTICATE
         let mut resp_data = self.external_authenticate(&msg)?;
         ensure!(resp_data.len() == 40);
 
         // Check MAC and decrypt response
-        let mac = mac_3des(&kmac, &resp_data[..32]);
+        let mut msg_mac = resp_data[..32].to_vec();
+        pad(&mut msg_mac, 8);
+        let mac = mac_3des(&kmac, &msg_mac);
         ensure!(&resp_data[32..] == &mac[..]);
         dec_3des(&kenc, &mut resp_data[..32]);
         let resp_data = &resp_data[..32];
@@ -88,7 +93,7 @@ impl Icao9303 {
         let ssc: u64 = u64::from_be_bytes(ssc_bytes[..8].try_into().unwrap());
 
         // Add TDES session keys to secure messaging
-        let tdes = TDesSM::from_seed(seed, ssc);
+        let tdes = Encrypted::new(TDesCipher::from_seed(seed), ssc);
         self.secure_messaging = Box::new(tdes);
 
         Ok(())

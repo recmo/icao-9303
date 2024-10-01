@@ -10,6 +10,7 @@ bytes = "1.7.2"
 cbc = { version = "0.1.2", features = ["block-padding"] }
 cbc-mac = "0.1.1"
 cipher = { version = "0.4.4", features = ["alloc", "block-padding"] }
+cmac = "0.7.2"
 const-oid = { version = "0.9.6", features = ["db"] }
 crc = "3.2.1"
 der = { version = "0.7.9", features = ["oid", "derive", "std"] }

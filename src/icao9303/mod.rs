@@ -1,7 +1,7 @@
 mod bac;
 mod chip_authentication;
 mod files;
-mod secure_messaging;
+pub mod secure_messaging;
 
 use {
     self::secure_messaging::{PlainText, SecureMessaging},
@@ -33,16 +33,21 @@ impl Icao9303 {
         }
     }
 
+    pub fn set_secure_messaging(&mut self, secure_messaging: Box<dyn SecureMessaging>) {
+        self.secure_messaging = secure_messaging;
+    }
+
     pub fn send_apdu(&mut self, apdu: &[u8]) -> Result<(StatusWord, Vec<u8>)> {
-        // println!("Sending APDU: {}", hex::encode(apdu));
+        println!("Sending APDU: {}", hex::encode(apdu));
         let protected_apdu = self.secure_messaging.enc_apdu(apdu)?;
+        println!("Sending PAPDU: {}", hex::encode(&protected_apdu));
         let (status, data) = self.nfc.send_apdu(&protected_apdu)?;
         eprintln!("Status: {}", status);
 
         // TODO: On SM error card will revert to plain APDU. Check for SM error.
         let data = self.secure_messaging.dec_response(status, &data)?;
-        //println!("Status: {}", status);
-        //println!("Data: {}", hex::encode(&data));
+        println!("Status: {}", status);
+        println!("Data: {}", hex::encode(&data));
         Ok((status, data))
     }
 }

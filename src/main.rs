@@ -18,6 +18,7 @@ use {
         Decode, Tagged,
     },
     hex_literal::hex,
+    icao9303::secure_messaging::{aes::Aes256Cipher, Encrypted},
     std::env,
     tr03110::{oid_name, ChipAuthenticationInfo, ChipAuthenticationPublicKeyInfo},
     tr03111::{ecka, ECAlgoParameters, EllipticCurve, ID_EC_PUBLIC_KEY},
@@ -167,7 +168,7 @@ fn main() -> Result<()> {
     dbg!(public_key);
 
     let (s, z) = ecka(private_key, card_public_key)?;
-    dbg!(s, hex::encode(z));
+    dbg!(&s, hex::encode(&z));
 
     // Initiate Chip Authentication
     // ICAO-9303-11 section 6.2
@@ -183,6 +184,11 @@ fn main() -> Result<()> {
     println!("==> General Authenticate: {}", hex::encode(data));
 
     // Keys should now have been changed.
+    let sm = Encrypted::new(Aes256Cipher::from_seed(&z), 0);
+    card.set_secure_messaging(Box::new(sm));
+    //
+
+    // Test the new keys.
     card.select_master_file()?;
 
     // 00 22 41 a4 0c 80 0b 04 00 7f 00 07 02 02 03 02 04

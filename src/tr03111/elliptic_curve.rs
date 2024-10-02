@@ -17,7 +17,8 @@ pub struct EllipticCurve {
     base_field: PrimeField,
     scalar_field: PrimeField,
     // Curve parameters in Montgomery form.
-    // Ideally we would store as PrimeFieldElement, but that would require a reference to the field and confuses the borrow checker.
+    // Ideally we would store as PrimeFieldElement, but that would require a reference
+    // to the field which confuses the borrow checker.
     a_monty: U320,
     b_monty: U320,
     cofactor: U320,
@@ -82,7 +83,7 @@ impl EllipticCurve {
             cofactor,
             generator_monty: (U320::ZERO, U320::ZERO),
         };
-        let generator = curve.from_bytes(params.base.as_bytes())?;
+        let generator = curve.pt_from_bytes(params.base.as_bytes())?;
         curve.generator_monty = generator.as_monty().unwrap();
         Ok(curve)
     }
@@ -139,7 +140,7 @@ impl EllipticCurve {
     }
 
     /// TR-03111 section 3.2
-    pub fn from_bytes(&self, bytes: &[u8]) -> Result<EllipticCurvePoint> {
+    pub fn pt_from_bytes(&self, bytes: &[u8]) -> Result<EllipticCurvePoint> {
         ensure!(!bytes.is_empty());
         let fe_len = self.base_field.byte_len();
         match bytes[0] {

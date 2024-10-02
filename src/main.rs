@@ -156,7 +156,7 @@ fn main() -> Result<()> {
         .subject_public_key
         .as_bytes()
         .unwrap();
-    let card_public_key = curve.from_bytes(card_public_key)?;
+    let card_public_key = curve.pt_from_bytes(card_public_key)?;
     dbg!(card_public_key);
 
     // Generate ephemeral keypair
@@ -190,8 +190,10 @@ fn main() -> Result<()> {
     // Test the new keys.
     card.select_master_file()?;
 
-    // 00 22 41 a4 0c 80 0b 04 00 7f 00 07 02 02 03 02 04
-    // 00 22 41 A4 0F 80 0A 04 00 7F 00 07 02 02 03 02 02 84 01 01
+    card.select_dedicated_file(&hex!("A0000002471001"))?;
+    if let Ok(data) = card.read_file(0x0F) {
+        println!("==> EF.DG15: ({} B) {}", data.len(), hex::encode(data));
+    }
 
     Ok(())
 }

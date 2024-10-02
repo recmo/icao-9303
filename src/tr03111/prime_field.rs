@@ -1,5 +1,5 @@
 use {
-    rand::Rng,
+    rand::{CryptoRng, Rng, RngCore},
     ruint::aliases::{U320, U64},
     std::{
         fmt::{self, Debug, Formatter},
@@ -88,7 +88,7 @@ impl PrimeField {
     }
 
     /// TR-03111 section 4.1.1 Algorithm 1
-    pub fn random_nonzero(&self, rng: &mut impl Rng) -> PrimeFieldElement {
+    pub fn random_nonzero(&self, mut rng: impl CryptoRng + RngCore) -> PrimeFieldElement {
         loop {
             let mut value = rng.gen::<U320>();
             // Zero out the high bits.

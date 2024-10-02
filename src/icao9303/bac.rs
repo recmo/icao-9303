@@ -52,10 +52,10 @@ impl Icao9303 {
         msg.extend_from_slice(&rnd_ifd);
         msg.extend_from_slice(&rnd_ic);
         msg.extend_from_slice(&k_ifd);
-        cipher.enc(&mut msg);
+        cipher.enc(0, &mut msg);
         let mut msg_mac = msg.clone();
         pad(&mut msg_mac, cipher.block_size());
-        msg.extend(cipher.mac(&msg_mac));
+        msg.extend(cipher.mac(0, &msg_mac));
 
         // EXTERNAL AUTHENTICATE
         let mut resp_data = self.external_authenticate(&msg)?;
@@ -64,9 +64,9 @@ impl Icao9303 {
         // Check MAC and decrypt response
         let mut msg_mac = resp_data[..32].to_vec();
         pad(&mut msg_mac, cipher.block_size());
-        let mac = cipher.mac(&msg_mac);
+        let mac = cipher.mac(0, &msg_mac);
         ensure!(&resp_data[32..] == &mac[..]);
-        cipher.dec(&mut resp_data[..32]);
+        cipher.dec(0, &mut resp_data[..32]);
         let resp_data = &resp_data[..32];
 
         // Check nonce consistency

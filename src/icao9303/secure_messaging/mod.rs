@@ -19,10 +19,9 @@ pub trait SecureMessaging {
 
 pub trait Cipher {
     fn block_size(&self) -> usize;
-
-    fn enc(&self, data: &mut [u8]);
-    fn dec(&self, data: &mut [u8]);
-    fn mac(&self, data: &[u8]) -> [u8; 8];
+    fn enc(&self, ssc: u64, data: &mut [u8]);
+    fn dec(&self, ssc: u64, data: &mut [u8]);
+    fn mac(&self, ssc: u64, data: &[u8]) -> [u8; 8];
 }
 
 /// Secure Messaging protocol that passes APDUs and responses as-is.
@@ -51,6 +50,9 @@ impl<C: Cipher> Encrypted<C> {
 
 impl<C: Cipher> SecureMessaging for Encrypted<C> {
     fn enc_apdu(&mut self, apdu: &[u8]) -> Result<Vec<u8>> {
+        // Increment send sequence counter
+        let ssc = self.ssc.wrapping_add(1);
+
         // Parse APDU
         let apdu = parse_apdu(apdu)?;
         let ins_even = apdu.ins() & 1 == 0;
@@ -71,7 +73,7 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
         if !apdu.data.is_empty() {
             let mut payload = apdu.data.to_vec();
             pad(&mut payload, self.cipher.block_size());
-            self.cipher.enc(&mut payload);
+            self.cipher.enc(ssc, &mut payload);
             papdu.push(if ins_even { 0x87 } else { 0x85 });
             papdu.push((payload.len() + 1) as u8);
             papdu.push(0x01); // Tag for 80 00* padding
@@ -87,12 +89,9 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
 
         // Write MAC (mandatory)
         {
-            // Increment send sequence counter
-            self.ssc = self.ssc.wrapping_add(1);
-
             // Prepare MAC input
             let mut message = vec![0; self.cipher.block_size() - 8];
-            message.extend_from_slice(&self.ssc.to_be_bytes());
+            message.extend_from_slice(&ssc.to_be_bytes());
             message.extend_from_slice(&papdu[..4]);
             pad(&mut message, self.cipher.block_size());
             if extended_length {
@@ -103,7 +102,7 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
             pad(&mut message, self.cipher.block_size());
 
             // Compute MAC and append to papdu
-            let mac = self.cipher.mac(&message);
+            let mac = self.cipher.mac(ssc, &message);
             papdu.push(0x8E);
             papdu.push(mac.len() as u8);
             papdu.extend_from_slice(&mac);
@@ -125,6 +124,8 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
             papdu.extend_from_slice(&[0x00]);
         };
 
+        // Commit SSC
+        self.ssc = ssc;
         Ok(papdu)
     }
 
@@ -143,7 +144,7 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
         n.extend_from_slice(&self.ssc.to_be_bytes());
         n.extend_from_slice(resp);
         pad(&mut n, self.cipher.block_size());
-        let mac2 = self.cipher.mac(&n);
+        let mac2 = self.cipher.mac(self.ssc, &n);
         ensure!(mac == mac2);
 
         // Split off DO'99 object and check (redundant) status word.
@@ -186,7 +187,7 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
         ensure!(resp[0] == 0x01);
         let mut resp = resp[1..].to_vec();
         ensure!(resp.len() % self.cipher.block_size() == 0);
-        self.cipher.dec(&mut resp);
+        self.cipher.dec(self.ssc, &mut resp);
         let length = resp
             .iter()
             .rposition(|&x| x == 0x80)

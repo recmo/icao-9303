@@ -1,4 +1,4 @@
-//! 3DES Secure Messasing
+//! 3DES cipher for Secure Messaging
 
 use {
     super::{Cipher, KDF_ENC, KDF_MAC},
@@ -50,7 +50,7 @@ impl Cipher for TDesCipher {
         BLOCK_SIZE
     }
 
-    fn enc(&self, data: &mut [u8]) {
+    fn enc(&self, _ssc: u64, data: &mut [u8]) {
         assert!(data.len() % BLOCK_SIZE == 0);
         let cipher = TdesEde2::new_from_slice(&self.kenc[..]).unwrap();
         let iv = [0; 8];
@@ -61,8 +61,8 @@ impl Cipher for TDesCipher {
             .unwrap();
     }
 
-    fn dec(&self, data: &mut [u8]) {
-        assert!(data.len() % 8 == 0);
+    fn dec(&self, _ssc: u64, data: &mut [u8]) {
+        assert!(data.len() % BLOCK_SIZE == 0);
         let cipher = TdesEde2::new_from_slice(&self.kenc[..]).unwrap();
         let iv = [0; 8];
         let block_mode = CbcDec::inner_iv_slice_init(cipher, &iv).unwrap();
@@ -71,8 +71,8 @@ impl Cipher for TDesCipher {
 
     /// Retail MAC (ISO 9797-1 mode 3) using DES.
     // See <https://crypto.stackexchange.com/questions/18951/what-are-options-to-compute-des-retail-mac-aka-iso-9797-1-mode-3-under-pkcs11>
-    fn mac(&self, data: &[u8]) -> [u8; 8] {
-        assert_eq!(data.len() % 8, 0);
+    fn mac(&self, _ssc: u64, data: &[u8]) -> [u8; 8] {
+        assert_eq!(data.len() % BLOCK_SIZE, 0);
         let des1 = Des::new_from_slice(&self.kmac[..8]).unwrap();
         let des2 = Des::new_from_slice(&self.kmac[8..]).unwrap();
         let mut state = [0_u8; 8];
@@ -126,7 +126,7 @@ mod tests {
             };
             let mut msg = msg.to_vec();
             pad(&mut msg, 8);
-            cipher.mac(&msg)
+            cipher.mac(0, &msg)
         }
 
         let key = hex!("7962D9ECE03D1ACD4C76089DCE131543");
@@ -152,7 +152,7 @@ mod tests {
                 kenc: *key,
                 kmac: *key,
             };
-            cipher.enc(msg)
+            cipher.enc(0, msg)
         }
 
         let key = hex!("AB94FDECF2674FDFB9B391F85D7F76F2");

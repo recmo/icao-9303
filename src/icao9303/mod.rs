@@ -1,3 +1,4 @@
+mod asn1;
 mod bac;
 mod chip_authentication;
 mod files;

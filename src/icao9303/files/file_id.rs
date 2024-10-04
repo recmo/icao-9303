@@ -1,6 +1,9 @@
 //! ICAO 9303-10 Table 38.
 
-use std::fmt::{self, Display, Formatter};
+use {
+    der::Tag,
+    std::fmt::{self, Display, Formatter},
+};
 
 pub const EMRTD_LDS1_AID: &[u8] = &[0xA0, 0x00, 0x00, 0x02, 0x47, 0x10, 0x01];
 
@@ -179,6 +182,13 @@ impl FileId {
             Self::Dg15 => 0x0F,
             Self::Dg16 => 0x10,
             Self::Sod => 0x1D,
+        }
+    }
+
+    pub fn tag(&self) -> Tag {
+        match self {
+            Self::Sod => 0x77.try_into().unwrap(),
+            _ => unimplemented!(),
         }
     }
 }

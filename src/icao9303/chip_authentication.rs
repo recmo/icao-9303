@@ -56,8 +56,7 @@ impl Icao9303 {
         dbg!(card_public_key);
 
         // Generate ephemeral keypair
-        let mut rng = rand::thread_rng();
-        let private_key = curve.scalar_field().random_nonzero(&mut rng);
+        let private_key = curve.scalar_field().random_nonzero(rng);
         let public_key = private_key * curve.generator();
         dbg!(private_key);
         dbg!(public_key);

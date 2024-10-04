@@ -18,34 +18,14 @@ pub struct TDesCipher {
     kmac: [u8; 16],
 }
 
-pub fn kdf(seed: &[u8; 16], counter: u32) -> [u8; 16] {
-    let mut hasher = Sha1::new();
-    hasher.update(seed);
-    hasher.update(counter.to_be_bytes());
-    let hash = hasher.finalize();
-    let mut key: [u8; 16] = hash[0..16].try_into().unwrap();
-    set_parity_bits(&mut key);
-    key
-}
-
-/// DES keys use only 7 bits per byte, with the least significant bit used for parity.
-fn set_parity_bits(key: &mut [u8]) {
-    for byte in key {
-        *byte &= 0xFE;
-        *byte |= 1 ^ (byte.count_ones() as u8 & 1);
-    }
-}
-
-impl TDesCipher {
-    pub fn from_seed(seed: [u8; 16]) -> Self {
+impl Cipher for TDesCipher {
+    fn from_seed(seed: &[u8]) -> Self {
         Self {
-            kenc: kdf(&seed, KDF_ENC),
-            kmac: kdf(&seed, KDF_MAC),
+            kenc: kdf(seed, KDF_ENC),
+            kmac: kdf(seed, KDF_MAC),
         }
     }
-}
 
-impl Cipher for TDesCipher {
     fn block_size(&self) -> usize {
         BLOCK_SIZE
     }
@@ -85,6 +65,24 @@ impl Cipher for TDesCipher {
         des2.decrypt_block((&mut state).into());
         des1.encrypt_block((&mut state).into());
         state
+    }
+}
+
+fn kdf(seed: &[u8], counter: u32) -> [u8; 16] {
+    let mut hasher = Sha1::new();
+    hasher.update(seed);
+    hasher.update(counter.to_be_bytes());
+    let hash = hasher.finalize();
+    let mut key: [u8; 16] = hash[0..16].try_into().unwrap();
+    set_parity_bits(&mut key);
+    key
+}
+
+/// DES keys use only 7 bits per byte, with the least significant bit used for parity.
+fn set_parity_bits(key: &mut [u8]) {
+    for byte in key {
+        *byte &= 0xFE;
+        *byte |= 1 ^ (byte.count_ones() as u8 & 1);
     }
 }
 

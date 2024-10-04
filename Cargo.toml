@@ -6,11 +6,13 @@ edition = "2021"
 [dependencies]
 aes = "0.8.4"
 anyhow = "1.0.89"
+blake3 = "1.5.4"
 bytes = "1.7.2"
 cbc = { version = "0.1.2", features = ["block-padding"] }
 cbc-mac = "0.1.1"
 cipher = { version = "0.4.4", features = ["alloc", "block-padding"] }
 cmac = "0.7.2"
+cms = { version = "0.2.3", features = ["std"] }
 const-oid = { version = "0.9.6", features = ["db"] }
 crc = "3.2.1"
 der = { version = "0.7.9", features = ["oid", "derive", "std"] }
@@ -29,3 +31,6 @@ thiserror = "1.0.64"
 [features]
 default = ["proxmark3"]
 proxmark3 = ["rusb"]
+
+[patch.crates-io]
+cms = { path = "../../RustCrypto/formats/cms" }

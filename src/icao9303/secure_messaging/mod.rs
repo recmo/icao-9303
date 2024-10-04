@@ -4,13 +4,26 @@ pub mod aes;
 pub mod tdes;
 
 use {
-    super::pad,
-    crate::iso7816::{parse_apdu, StatusWord},
-    anyhow::{anyhow, ensure, Result},
+    self::{
+        aes::{Aes128Cipher, Aes192Cipher, Aes256Cipher},
+        tdes::TDesCipher,
+    },
+    super::{pad, Error, Result},
+    crate::{
+        ensure_err,
+        iso7816::{parse_apdu, StatusWord},
+    },
 };
 
 pub const KDF_ENC: u32 = 1;
 pub const KDF_MAC: u32 = 2;
+
+pub enum SymmetricCipher {
+    Tdes,
+    Aes124,
+    Aes192,
+    Aes256,
+}
 
 pub trait SecureMessaging {
     fn enc_apdu(&mut self, apdu: &[u8]) -> Result<Vec<u8>>;
@@ -18,6 +31,7 @@ pub trait SecureMessaging {
 }
 
 pub trait Cipher {
+    fn from_seed(seed: &[u8]) -> Self;
     fn block_size(&self) -> usize;
     fn enc(&self, ssc: u64, data: &mut [u8]);
     fn dec(&self, ssc: u64, data: &mut [u8]);
@@ -30,6 +44,32 @@ pub struct PlainText;
 pub struct Encrypted<C: Cipher> {
     cipher: C,
     ssc: u64,
+}
+
+impl SymmetricCipher {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Tdes => "3DES-CBC-CBC",
+            Self::Aes124 => "AES-CBC-CMAC-128",
+            Self::Aes192 => "AES-CBC-CMAC-192",
+            Self::Aes256 => "AES-CBC-CMAC-256",
+        }
+    }
+
+    pub fn construct(&self, seed: &[u8]) -> Box<dyn SecureMessaging> {
+        match self {
+            Self::Tdes => TDesCipher::from_seed(seed).into(),
+            Self::Aes124 => Aes128Cipher::from_seed(seed).into(),
+            Self::Aes192 => Aes192Cipher::from_seed(seed).into(),
+            Self::Aes256 => Aes256Cipher::from_seed(seed).into(),
+        }
+    }
+}
+
+impl PlainText {
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl SecureMessaging for PlainText {
@@ -130,12 +170,12 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
     }
 
     fn dec_response(&mut self, status: StatusWord, resp: &[u8]) -> Result<Vec<u8>> {
-        ensure!(resp.len() >= 14);
+        ensure_err!(resp.len() >= 14, Error::SMResponseInvalid);
 
         // Split off DO'8E object containing MAC
         let (resp, mac) = resp.split_at(resp.len() - 10);
-        ensure!(mac[0] == 0x8E);
-        ensure!(mac[1] == 0x08);
+        ensure_err!(mac[0] == 0x8E, Error::SMResponseInvalid);
+        ensure_err!(mac[1] == 0x08, Error::SMResponseInvalid);
         let mac = &mac[2..];
 
         // Compute and verify MAC
@@ -145,16 +185,16 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
         n.extend_from_slice(resp);
         pad(&mut n, self.cipher.block_size());
         let mac2 = self.cipher.mac(self.ssc, &n);
-        ensure!(mac == mac2);
+        ensure_err!(mac == mac2, Error::SMResponseMacFailed);
 
         // Split off DO'99 object and check (redundant) status word.
         // TODO: DO'99 is optional, so we should check if it's present.
         // TODO: DO'99 is allowed to be empty.
         let (resp, do99) = resp.split_at(resp.len() - 4);
-        ensure!(do99[0] == 0x99);
-        ensure!(do99[1] == 0x02);
-        ensure!(do99[2] == status.sw1());
-        ensure!(do99[3] == status.sw2());
+        ensure_err!(do99[0] == 0x99, Error::SMResponseInvalid);
+        ensure_err!(do99[1] == 0x02, Error::SMResponseInvalid);
+        ensure_err!(do99[2] == status.sw1(), Error::SMResponseInvalid);
+        ensure_err!(do99[3] == status.sw2(), Error::SMResponseInvalid);
 
         // If no data remaining there was no response data
         if resp.is_empty() {
@@ -163,8 +203,8 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
 
         // Decrypt DO'87 response data object
         // TODO: Allow for trailing data.
-        ensure!(resp.len() >= 11);
-        ensure!(resp[0] == 0x85 || resp[0] == 0x87);
+        ensure_err!(resp.len() >= 11, Error::SMResponseInvalid);
+        ensure_err!(resp[0] == 0x85 || resp[0] == 0x87, Error::SMResponseInvalid);
         // Parse BER-TLV length
         let (tl_len, length) = match resp[1] {
             0x00..=0x7F => (2, resp[1] as usize),
@@ -179,21 +219,30 @@ impl<C: Cipher> SecureMessaging for Encrypted<C> {
                 u32::from_be_bytes([resp[2], resp[3], resp[4], resp[5]]) as usize,
             ),
             _ => {
-                return Err(anyhow!("Invalid BER-TLV length."));
+                return Err(Error::SMResponseInvalid);
             }
         };
         let resp = &resp[tl_len..];
-        ensure!(resp.len() == length);
-        ensure!(resp[0] == 0x01);
+        ensure_err!(resp.len() == length, Error::SMResponseInvalid);
+        ensure_err!(resp[0] == 0x01, Error::SMResponseInvalid);
         let mut resp = resp[1..].to_vec();
-        ensure!(resp.len() % self.cipher.block_size() == 0);
+        ensure_err!(
+            resp.len() % self.cipher.block_size() == 0,
+            Error::SMResponseInvalid
+        );
         self.cipher.dec(self.ssc, &mut resp);
         let length = resp
             .iter()
             .rposition(|&x| x == 0x80)
-            .ok_or(anyhow!("Unpadding failed."))?;
+            .ok_or(Error::SMResponseInvalid)?; // Unpadding failed
         resp.truncate(length);
 
         Ok(resp)
+    }
+}
+
+impl<C: Cipher + 'static> From<C> for Box<dyn SecureMessaging> {
+    fn from(cipher: C) -> Self {
+        Box::new(Encrypted::new(cipher, 0))
     }
 }

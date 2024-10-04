@@ -42,7 +42,7 @@ impl Icao9303 {
 
         // Compute encryption / authentication keys from MRZ
         let seed = seed_from_mrz(mrz);
-        let cipher = TDesCipher::from_seed(seed);
+        let cipher = TDesCipher::from_seed(&seed);
 
         // GET CHALLENGE
         let rnd_ic = self.get_challenge()?;
@@ -85,7 +85,7 @@ impl Icao9303 {
         let ssc: u64 = u64::from_be_bytes(ssc_bytes[..8].try_into().unwrap());
 
         // Add TDES session keys to secure messaging
-        let tdes = Encrypted::new(TDesCipher::from_seed(seed), ssc);
+        let tdes = Encrypted::new(TDesCipher::from_seed(&seed), ssc);
         self.secure_messaging = Box::new(tdes);
 
         Ok(())

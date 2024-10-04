@@ -6,6 +6,13 @@ use std::fmt::{self, Display, Formatter};
 pub struct StatusWord(u16);
 
 impl StatusWord {
+    pub const SUCCESS: StatusWord = StatusWord(0x9000);
+    pub const FILE_NOT_FOUND: StatusWord = StatusWord(0x6A82);
+    pub const ACCESS_DENIED: StatusWord = StatusWord(0x6982);
+
+    pub const SECURE_MESSAGING_INCOMPLETE: StatusWord = StatusWord(0x6987);
+    pub const SECURE_MESSAGING_INCORRECT: StatusWord = StatusWord(0x6988);
+
     pub fn sw1(self) -> u8 {
         (self.0 >> 8) as u8
     }

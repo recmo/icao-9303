@@ -5,13 +5,12 @@ use {
     aes::{Aes128, Aes192, Aes256},
     cbc::{Decryptor as CbcDec, Encryptor as CbcEnc},
     cipher::{
-        block_padding::NoPadding, BlockCipher, BlockDecryptMut, BlockEncrypt, BlockEncryptMut,
-        KeyInit, KeyIvInit,
+        block_padding::NoPadding, BlockDecryptMut, BlockEncrypt, BlockEncryptMut, KeyInit,
+        KeyIvInit,
     },
     cmac::{Cmac, Mac},
     sha1::{Digest, Sha1},
     sha2::Sha256,
-    std::marker::PhantomData,
 };
 
 // All AES variantes have the same block size
@@ -33,13 +32,6 @@ pub struct Aes256Cipher {
 }
 
 impl Aes128Cipher {
-    pub fn from_seed(seed: &[u8]) -> Self {
-        Self {
-            kenc: kdf_128(seed, KDF_ENC),
-            kmac: kdf_128(seed, KDF_MAC),
-        }
-    }
-
     fn iv(&self, ssc: u64) -> [u8; BLOCK_SIZE] {
         let mut iv = [0; BLOCK_SIZE];
         iv[8..].copy_from_slice(ssc.to_be_bytes().as_ref());
@@ -49,13 +41,6 @@ impl Aes128Cipher {
 }
 
 impl Aes192Cipher {
-    pub fn from_seed(seed: &[u8]) -> Self {
-        Self {
-            kenc: kdf_192(seed, KDF_ENC),
-            kmac: kdf_192(seed, KDF_MAC),
-        }
-    }
-
     fn iv(&self, ssc: u64) -> [u8; BLOCK_SIZE] {
         let mut iv = [0; BLOCK_SIZE];
         iv[8..].copy_from_slice(ssc.to_be_bytes().as_ref());
@@ -65,13 +50,6 @@ impl Aes192Cipher {
 }
 
 impl Aes256Cipher {
-    pub fn from_seed(seed: &[u8]) -> Self {
-        Self {
-            kenc: kdf_256(seed, KDF_ENC),
-            kmac: kdf_256(seed, KDF_MAC),
-        }
-    }
-
     fn iv(&self, ssc: u64) -> [u8; BLOCK_SIZE] {
         let mut iv = [0; BLOCK_SIZE];
         iv[8..].copy_from_slice(ssc.to_be_bytes().as_ref());
@@ -81,6 +59,13 @@ impl Aes256Cipher {
 }
 
 impl Cipher for Aes128Cipher {
+    fn from_seed(seed: &[u8]) -> Self {
+        Self {
+            kenc: kdf_128(seed, KDF_ENC),
+            kmac: kdf_128(seed, KDF_MAC),
+        }
+    }
+
     fn block_size(&self) -> usize {
         BLOCK_SIZE
     }
@@ -107,6 +92,13 @@ impl Cipher for Aes128Cipher {
 }
 
 impl Cipher for Aes192Cipher {
+    fn from_seed(seed: &[u8]) -> Self {
+        Self {
+            kenc: kdf_192(seed, KDF_ENC),
+            kmac: kdf_192(seed, KDF_MAC),
+        }
+    }
+
     fn block_size(&self) -> usize {
         BLOCK_SIZE
     }
@@ -133,6 +125,13 @@ impl Cipher for Aes192Cipher {
 }
 
 impl Cipher for Aes256Cipher {
+    fn from_seed(seed: &[u8]) -> Self {
+        Self {
+            kenc: kdf_256(seed, KDF_ENC),
+            kmac: kdf_256(seed, KDF_MAC),
+        }
+    }
+
     fn block_size(&self) -> usize {
         BLOCK_SIZE
     }

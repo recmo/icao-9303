@@ -15,6 +15,8 @@ use {
 
 impl Icao9303 {
     pub fn chip_authenticate(&mut self, rng: impl CryptoRng + RngCore) -> Result<()> {
+        // TODO: Some passports only have ChipAuthenticationPublicKeyInfo but no ChipAuthenticationInfo. In this case, CA_(EC)DH_3DES_CBC_CBC should be assumed.
+
         // Read EF.DG14
         let ef_dg14 = self.read_file_cached(FileId::Dg14).unwrap().unwrap();
 

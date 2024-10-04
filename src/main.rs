@@ -10,42 +10,42 @@ mod utils;
 use {
     crate::{icao9303::Icao9303, nfc::connect_reader},
     anyhow::Result,
+    icao9303::{Error, FileId},
+    iso7816::StatusWord,
     std::env,
 };
 
 // https://github.com/RfidResearchGroup/proxmark3/issues/1117
 
 fn main() -> Result<()> {
-    // TODO: Some passports only have ChipAuthenticationPublicKeyInfo but no ChipAuthenticationInfo. In this case, CA_(EC)DH_3DES_CBC_CBC should be assumed.
-
-    // My eMRTD uses BrainpoolP320R1, but instead of providing a named curve it has explicit parameters!
+    let mut rng = rand::thread_rng();
 
     // Find and open the Proxmark3 device
     let mut nfc = connect_reader()?;
 
-    // TODO: Implement full ICAO-9303-4.2 Chip Access Procedure.
-
     // Connect to ISO 14443-A card as reader, keeping the field on.
-    nfc.connect()?;
+    let card = nfc.connect()?;
+    dbg!(&card);
+    assert!(card.is_some());
+
     let mut card = Icao9303::new(nfc);
 
-    println!("=== Basic Access Control.");
-    let mut rng = rand::thread_rng();
+    // println!("=== Basic Access Control.");
     let mrz = env::var("MRZ")?;
     card.basic_access_control(&mut rng, &mrz)?;
 
     // Should be secured now!
-    // // Let's read some files.
-    // for file_id in FileId::iter() {
-    //     match card.read_file_cached(file_id) {
-    //         Ok(Some(data)) => println!("{}: {}", file_id, hex::encode(data)),
-    //         Ok(None) => println!("{}: Not Found", file_id),
-    //         Err(Error::ErrorResponse(StatusWord::ACCESS_DENIED)) => {
-    //             println!("{}: Access Denied", file_id)
-    //         }
-    //         Err(e) => eprintln!("{}: {}", file_id, e),
-    //     }
-    // }
+    // Let's read some files.
+    for file_id in FileId::iter() {
+        match card.read_file_cached(file_id) {
+            Ok(Some(data)) => println!("{}: {}", file_id, hex::encode(data)),
+            Ok(None) => println!("{}: Not Found", file_id),
+            Err(Error::ErrorResponse(StatusWord::ACCESS_DENIED)) => {
+                println!("{}: Access Denied", file_id)
+            }
+            Err(e) => eprintln!("{}: {}", file_id, e),
+        }
+    }
 
     // Active Authentication with fixed nonce
     // // ICAO 9303-11 section 6.1

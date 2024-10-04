@@ -7,9 +7,9 @@ mod usb; // TODO: BLE
 
 use {
     self::usb::UsbConnection,
-    super::NfcReader,
+    super::{CardType, CardTypeA, CardTypeB, NfcReader},
     crate::iso7816::StatusWord,
-    anyhow::{ensure, Result},
+    anyhow::{bail, ensure, Result},
     bytes::{Buf, BufMut, BytesMut},
     crc::{Crc, CRC_16_ISO_IEC_14443_3_A},
     std::array,
@@ -36,12 +36,14 @@ pub enum Status {
     Success = 0,
     UndefinedError = -1,
     InvalidArgument = -2,
+    CardExchangeFailed = -18,
 }
 
 pub struct Proxmark3 {
     connection: Box<dyn Connection>,
     crc: bool,
     trace: bool,
+    current_card: Option<CardType>,
 }
 
 /// Connection to a Proxmark3 UART interface.
@@ -53,6 +55,7 @@ trait Connection {
 
 impl Proxmark3 {
     pub fn new() -> Result<Self> {
+        // Connect to Proxmark3
         let connection = UsbConnection::new()?;
         let mut proxmark3 = Proxmark3::from_connection(Box::new(connection));
         proxmark3.test_connection()?;
@@ -70,6 +73,7 @@ impl Proxmark3 {
             connection,
             crc: true,
             trace: false,
+            current_card: None,
         }
     }
 
@@ -112,6 +116,125 @@ impl Proxmark3 {
             );
         }
         Ok(())
+    }
+
+    fn connect_type_a(&mut self) -> Result<Option<CardTypeA>> {
+        // Connect to ISO 14443-A card as reader, keeping the field on.
+        // hf 14a reader -k
+        // https://github.com/RfidResearchGroup/proxmark3/blob/55ef252a5d0d590026a4959a4c1b7a6028d1ad13/include/mifare.h#L88
+        self.send_command_mix(Command::Hf14aReader, 3, 0, 0, &[])?; // 3 = CONNECT | NO_DISCONNECT
+        let (status, cmd, response) = self.receive_response()?;
+        ensure!(status == Status::Success as i16);
+        ensure!(cmd == Command::Ack as u16);
+        let mut response = &response[..];
+        ensure!(response.len() >= 24);
+        let arg0 = response.get_u64_le();
+        let _arg1 = response.get_u64_le();
+        let _arg2 = response.get_u64_le();
+        if arg0 == 0 {
+            // No card found
+            return Ok(None);
+        }
+        ensure!(response.len() == 271);
+        ensure!(arg0 == 1);
+        // TODO: arg0 == 2 means no ATS included and will have to be requested separately.
+        let (uid, mut response) = response.split_at(10);
+        let uid_len = response.get_u8();
+        let uid = &uid[..uid_len as usize];
+        let atqa = response.get_u16_le();
+        let sak = response.get_u8();
+        let ats_len = response.get_u8();
+        let (ats, mut _response) = response.split_at(ats_len as usize);
+
+        let card = CardTypeA {
+            uid: uid.to_vec(),
+            atqa,
+            sak,
+            ats: ats.to_vec(),
+        };
+        self.current_card = Some(CardType::A(card.clone()));
+        Ok(Some(card))
+    }
+
+    fn connect_type_b(&mut self) -> Result<Option<CardTypeB>> {
+        // Switch off field.
+        self.hf14b(0x0002, &[])?;
+
+        // CONNECT | SELECT_STD | CLEARTRACE
+        self.hf14b(0x0841, &[])?;
+        let (status, cmd, response) = self.receive_response()?;
+        dbg!(&status, &cmd, &response);
+        ensure!(cmd == Command::Hf14bReader as u16);
+        if status == Status::CardExchangeFailed as i16 {
+            // TODO: Retry with SELECT_SR and then with SELECT_CTS
+            return Ok(None);
+        }
+        ensure!(status == Status::Success as i16);
+
+        // Parse response as iso14b_card_select_t
+        ensure!(response.len() == 20);
+        let uid = &response[..response[10] as usize];
+        let atqb = &response[11..18];
+        let chip_id = response[18];
+        let cid = response[19];
+
+        let card = CardTypeB {
+            uid: uid.to_vec(),
+            atqb: atqb.to_vec(),
+            chip_id,
+            cid,
+        };
+        self.current_card = Some(CardType::B(card.clone()));
+        Ok(Some(card))
+    }
+
+    fn hf14a_send(&mut self, apdu: &[u8]) -> Result<Vec<u8>> {
+        // TODO: Support extended length
+
+        // hf 14a apdu -k -d <apdu>
+        // 6 = SEND_APDU | NO_DISCONNECT
+        self.send_command_mix(Command::Hf14aReader, 6, apdu.len() as u64, 0, apdu)?;
+        let (status, cmd, response) = self.receive_response()?;
+        ensure!(status == Status::Success as i16);
+        ensure!(cmd == Command::Ack as u16);
+        ensure!(response.len() == 512);
+        let mut response = &response[..];
+        let length = response.get_u64_le();
+        let _result = response.get_u64_le();
+        let _arg2 = response.get_u64_le();
+        ensure!(length >= 2);
+        ensure!(length <= 512);
+        let data = &response[..length as usize - 2];
+        Ok(data.to_vec())
+    }
+
+    fn hf14b_send(&mut self, apdu: &[u8]) -> Result<Vec<u8>> {
+        // TODO: Support extended length
+        self.hf14b(0x0004, apdu)?;
+        let (status, cmd, response) = self.receive_response()?;
+        ensure!(status == Status::Success as i16);
+        ensure!(cmd == Command::Hf14bReader as u16);
+        ensure!(response.len() >= 3);
+        let response_byte = response[0];
+        let length = u16::from_le_bytes([response[1], response[2]]);
+        // TODO: Check alternation of response byte
+        ensure!(response_byte == 0x02 || response_byte == 0x03);
+        ensure!(length as usize == response.len() - 3);
+        let data = &response[3..];
+        // Remove CRC bytes
+        // TODO: Check CRC
+        let data = &data[..data.len() - 2];
+        Ok(data.to_vec())
+    }
+
+    fn hf14b(&mut self, command: u16, data: &[u8]) -> Result<()> {
+        const TIMEOUT: u32 = 0;
+        let mut packet = BytesMut::with_capacity(8 + data.len());
+        packet.put_u16_le(command); // .flags in iso14b_raw_cmd.
+        packet.put_u32_le(TIMEOUT);
+        packet.put_u16_le(data.len() as u16);
+        packet.put_slice(data);
+        self.send_command_ng(Command::Hf14bReader, &packet)
     }
 
     fn send_command_mix(
@@ -195,33 +318,14 @@ impl Proxmark3 {
 }
 
 impl NfcReader for Proxmark3 {
-    fn connect(&mut self) -> Result<()> {
-        // Connect to ISO 14443-A card as reader, keeping the field on.
-        // hf 14a reader -k
-        // https://github.com/RfidResearchGroup/proxmark3/blob/55ef252a5d0d590026a4959a4c1b7a6028d1ad13/include/mifare.h#L88
-        self.send_command_mix(Command::Hf14aReader, 3, 0, 0, &[])?; // 3 = CONNECT | NO_DISCONNECT
-        let (status, cmd, response) = self.receive_response()?;
-        ensure!(status == Status::Success as i16);
-        ensure!(cmd == Command::Ack as u16);
-        ensure!(response.len() == 295);
-        let mut response = &response[..];
-        let _arg0 = response.get_u64_le();
-        let _arg1 = response.get_u64_le();
-        let _arg2 = response.get_u64_le();
-        let (uuid, mut response) = response.split_at(10);
-        let uuid_len = response.get_u8();
-        let uuid = &uuid[..uuid_len as usize];
-        let atqa = response.get_u16_le();
-        let sak = response.get_u8();
-        let ats_len = response.get_u8();
-        let (ats, mut _response) = response.split_at(ats_len as usize);
-        if self.trace {
-            println!("Card UID: {}", hex::encode(uuid));
-            println!("Card ATQA: {}", hex::encode(atqa.to_be_bytes()));
-            println!("Card SAK: {}", hex::encode(sak.to_le_bytes()));
-            println!("Card ATS: {}", hex::encode(ats));
+    fn connect(&mut self) -> Result<Option<CardType>> {
+        if let Some(card) = self.connect_type_a()? {
+            return Ok(Some(CardType::A(card)));
         }
-        Ok(())
+        if let Some(card) = self.connect_type_b()? {
+            return Ok(Some(CardType::B(card)));
+        }
+        Ok(None)
     }
 
     fn disconnect(&mut self) -> Result<()> {
@@ -235,43 +339,14 @@ impl NfcReader for Proxmark3 {
     }
 
     fn send_apdu(&mut self, apdu: &[u8]) -> Result<(StatusWord, Vec<u8>)> {
-        // hf 14a apdu -k -d <apdu>
-        if self.trace {
-            eprint!("Sending APDU:");
-            for byte in apdu.iter() {
-                eprint!(" {:02X}", byte);
-            }
-            eprintln!();
-        }
-        self.send_command_mix(Command::Hf14aReader, 6, apdu.len() as u64, 0, apdu)?; // 6 = SEND_APDU | NO_DISCONNECT
-        let (status, cmd, response) = self.receive_response()?;
-        ensure!(status == Status::Success as i16);
-        ensure!(cmd == Command::Ack as u16);
-        ensure!(response.len() == 512);
-        let mut response = &response[..];
-        let length = response.get_u64_le();
-        let _result = response.get_u64_le();
-        let _arg2 = response.get_u64_le();
-        ensure!(length >= 2);
-        ensure!(length <= 512);
-        let data = &response[..length as usize - 2];
+        let data = match self.current_card {
+            Some(CardType::A(_)) => self.hf14a_send(apdu)?,
+            Some(CardType::B(_)) => self.hf14b_send(apdu)?,
+            None => bail!("No card connected"),
+        };
+        ensure!(data.len() >= 2);
         let (data, status) = data.split_at(data.len() - 2);
-
-        if self.trace {
-            eprint!("APDU response:");
-            for byte in data.iter() {
-                eprint!(" {:02X}", byte);
-            }
-            eprint!(" | ");
-            for byte in status.iter() {
-                eprint!(" {:02X}", byte);
-            }
-            eprintln!();
-        }
         let status = u16::from_be_bytes([status[0], status[1]]).into();
-        if self.trace {
-            eprintln!("Status {}", status);
-        }
         Ok((status, data.to_vec()))
     }
 }

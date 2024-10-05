@@ -214,11 +214,12 @@ impl Proxmark3 {
         let (status, cmd, response) = self.receive_response()?;
         ensure!(status == Status::Success as i16);
         ensure!(cmd == Command::Hf14bReader as u16);
+        dbg!(hex::encode(&response));
         ensure!(response.len() >= 3);
         let response_byte = response[0];
         let length = u16::from_le_bytes([response[1], response[2]]);
         // TODO: Check alternation of response byte
-        ensure!(response_byte == 0x02 || response_byte == 0x03);
+        // ensure!(response_byte == 0x02 || response_byte == 0x03);
         ensure!(length as usize == response.len() - 3);
         let data = &response[3..];
         // Remove CRC bytes

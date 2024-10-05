@@ -33,6 +33,10 @@ fn main() -> Result<()> {
     // println!("=== Basic Access Control.");
     let mrz = env::var("MRZ")?;
     card.basic_access_control(&mut rng, &mrz)?;
+    eprintln!("Basic Access Control successful.");
+
+    println!("=== Read SOD");
+    dbg!(card.ef_sod()?);
 
     // Should be secured now!
     // Let's read some files.

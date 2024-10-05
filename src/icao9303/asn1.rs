@@ -23,6 +23,11 @@ pub struct IdentifiedData<T: for<'a> Sequence<'a>> {
     pub contents: T,
 }
 
+pub fn parse_ef_sod(ef_sod: &[u8]) -> Result<DocumentSecurityObject, Error> {
+    let tag = 0x77.try_into().unwrap();
+    read_with_tag::<DocumentSecurityObject>(ef_sod, tag)
+}
+
 /// Helper function to read a DER-encoded value with an application specific tag.
 pub fn read_with_tag<T>(data: &[u8], tag: Tag) -> Result<T, Error>
 where

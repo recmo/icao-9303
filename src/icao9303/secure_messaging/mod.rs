@@ -13,14 +13,19 @@ use {
         ensure_err,
         iso7816::{parse_apdu, StatusWord},
     },
+    std::{
+        fmt,
+        fmt::{Display, Formatter},
+    },
 };
 
 pub const KDF_ENC: u32 = 1;
 pub const KDF_MAC: u32 = 2;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SymmetricCipher {
     Tdes,
-    Aes124,
+    Aes128,
     Aes192,
     Aes256,
 }
@@ -47,21 +52,23 @@ pub struct Encrypted<C: Cipher> {
 }
 
 impl SymmetricCipher {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Tdes => "3DES-CBC-CBC",
-            Self::Aes124 => "AES-CBC-CMAC-128",
-            Self::Aes192 => "AES-CBC-CMAC-192",
-            Self::Aes256 => "AES-CBC-CMAC-256",
-        }
-    }
-
     pub fn construct(&self, seed: &[u8]) -> Box<dyn SecureMessaging> {
         match self {
             Self::Tdes => TDesCipher::from_seed(seed).into(),
-            Self::Aes124 => Aes128Cipher::from_seed(seed).into(),
+            Self::Aes128 => Aes128Cipher::from_seed(seed).into(),
             Self::Aes192 => Aes192Cipher::from_seed(seed).into(),
             Self::Aes256 => Aes256Cipher::from_seed(seed).into(),
+        }
+    }
+}
+
+impl Display for SymmetricCipher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tdes => write!(f, "3DES-CBC-CBC"),
+            Self::Aes128 => write!(f, "AES-CBC-CMAC-128"),
+            Self::Aes192 => write!(f, "AES-CBC-CMAC-192"),
+            Self::Aes256 => write!(f, "AES-CBC-CMAC-256"),
         }
     }
 }

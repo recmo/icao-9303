@@ -10,7 +10,11 @@ mod utils;
 use {
     crate::{icao9303::Icao9303, nfc::connect_reader},
     anyhow::Result,
-    icao9303::{Error, FileId},
+    der::Decode,
+    icao9303::{
+        asn1::{EfCardAccess, EfDg14, EfSod},
+        Error, FileId,
+    },
     iso7816::StatusWord,
     std::env,
 };
@@ -19,6 +23,25 @@ use {
 
 fn main() -> Result<()> {
     let mut rng = rand::thread_rng();
+
+    let ef_sod = EfSod::from_der(include_bytes!("../dump/EF_SOD.bin"))?;
+    println!("DOCUMENT HASH = 0x{}", hex::encode(ef_sod.document_hash()));
+
+    let ef_card_access = EfCardAccess::from_der(include_bytes!("../dump/EF_CardAccess.bin"))?;
+    println!(
+        "EF_CardAccess: {}",
+        hex::encode(include_bytes!("../dump/EF_CardAccess.bin"))
+    );
+    println!("EF.CardAccess: {:?}", ef_card_access);
+
+    println!(
+        "EF_DG14: {}",
+        hex::encode(include_bytes!("../dump/EF_DG14.bin"))
+    );
+    let ef_ddg_14 = EfDg14::from_der(include_bytes!("../dump/EF_DG14.bin"))?;
+    println!("EF.DG14: {:?}", ef_ddg_14);
+
+    return Ok(());
 
     // Find and open the Proxmark3 device
     let mut nfc = connect_reader()?;

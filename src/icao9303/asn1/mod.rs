@@ -1,10 +1,14 @@
 mod application_tagged;
 mod content_info;
+mod security_info;
 
 use {
-    application_tagged::ApplicationTagged,
+    self::{
+        application_tagged::ApplicationTagged,
+        content_info::{ContentInfo, ContentType},
+        security_info::SecurityInfos,
+    },
     cms::signed_data::{SignedData, SignerInfo},
-    content_info::{ContentInfo, ContentType},
     der::asn1::ObjectIdentifier as Oid,
 };
 
@@ -12,7 +16,20 @@ impl ContentType for SignedData {
     const CONTENT_TYPE: Oid = Oid::new_unwrap("1.2.840.113549.1.7.2");
 }
 
-/// EF_SOD Application tag 23 = tag 0x77 encoded and wrapped
+/// EF_CardAccess is a [`SecurityInfos`] with no further wrapping.
+///
+/// See ICAO-9303-10 3.11.3
+pub type EfCardAccess = SecurityInfos;
+
+/// EF_DG14 is a [`SecurityInfos`] with no further wrapping.
+///
+/// See ICAO-9303-10 3.11.4
+pub type EfDg14 = ApplicationTagged<14, SecurityInfos>;
+
+/// EF_SOD is a wrapped [`SignedData`] structure.
+///
+/// See ICAO-9303-10 4.7.14. The 0x6E tag is an ASN1 Application
+/// constructed application tag with the value 14.
 pub type EfSod = ApplicationTagged<23, ContentInfo<SignedData>>;
 
 impl EfSod {

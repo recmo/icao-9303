@@ -30,8 +30,6 @@ impl<'a, const APPLICATION: u8, T: Decode<'a>> DecodeValue<'a>
     for ApplicationTagged<APPLICATION, T>
 {
     fn decode_value<R: Reader<'a>>(reader: &mut R, _header: Header) -> Result<Self> {
-        dbg!(reader.peek_byte());
-
         Ok(Self(T::decode(reader)?))
     }
 }

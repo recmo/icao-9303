@@ -1,15 +1,16 @@
 mod application_tagged;
 mod content_info;
-mod security_info;
+pub mod security_info;
 
+pub use self::{
+    application_tagged::ApplicationTagged,
+    content_info::{ContentInfo, ContentType},
+};
 use {
-    self::{
-        application_tagged::ApplicationTagged,
-        content_info::{ContentInfo, ContentType},
-        security_info::SecurityInfos,
-    },
+    super::{FileId, HasFileId},
     cms::signed_data::{SignedData, SignerInfo},
     der::asn1::ObjectIdentifier as Oid,
+    security_info::SecurityInfos,
 };
 
 impl ContentType for SignedData {
@@ -55,4 +56,16 @@ impl EfSod {
     pub fn document_hash(&self) -> [u8; 32] {
         *blake3::hash(self.signature()).as_bytes()
     }
+}
+
+impl HasFileId for EfSod {
+    const FILE_ID: FileId = FileId::Sod;
+}
+
+impl HasFileId for EfCardAccess {
+    const FILE_ID: FileId = FileId::CardAccess;
+}
+
+impl HasFileId for EfDg14 {
+    const FILE_ID: FileId = FileId::Dg14;
 }

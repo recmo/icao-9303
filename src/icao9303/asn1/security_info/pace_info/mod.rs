@@ -1,11 +1,7 @@
 mod pace_protocol;
 
-pub use pace_protocol::{KeyMapping, PaceProtocol};
-use {
-    super::{AnySecurityInfo, KeyAgreement},
-    crate::icao9303::{secure_messaging::SymmetricCipher, Error},
-    der::{asn1::ObjectIdentifier as Oid, Any, Sequence, ValueOrd},
-};
+pub use pace_protocol::PaceProtocol;
+use {super::KeyAgreement, crate::tr03111::AlgorithmIdentifier, der::Sequence};
 
 /// See ICAO-9303-11 9.2.1
 #[derive(Clone, PartialEq, Eq, Debug, Sequence)]
@@ -27,8 +23,6 @@ pub struct PaceDomainParameterInfo {
     pub domain_parameter: AlgorithmIdentifier,
     pub parameter_id: Option<u64>,
 }
-
-pub type AlgorithmIdentifier = Any; // TODO
 
 impl PaceInfo {
     pub fn ensure_valid(&self) {

@@ -1,8 +1,10 @@
 use {
     super::KeyAgreement,
-    crate::{ensure_err, icao9303::secure_messaging::SymmetricCipher},
+    crate::{
+        ensure_err, icao9303::secure_messaging::SymmetricCipher, tr03111::SubjectPublicKeyInfo,
+    },
     der::{
-        asn1::ObjectIdentifier as Oid, Any, DecodeValue, EncodeValue, Error, ErrorKind, FixedTag,
+        asn1::ObjectIdentifier as Oid, DecodeValue, EncodeValue, Error, ErrorKind, FixedTag,
         Header, Length, Reader, Result, Sequence, Tag, Writer,
     },
     std::fmt::{self, Display, Formatter},
@@ -32,8 +34,6 @@ pub struct ChipAuthenticationProtocol {
     pub key_agreement: KeyAgreement,
     pub cipher: Option<SymmetricCipher>,
 }
-
-pub type SubjectPublicKeyInfo = Any; // TODO
 
 impl ChipAuthenticationInfo {
     pub fn ensure_valid(self) {
@@ -90,7 +90,6 @@ impl From<ChipAuthenticationProtocol> for Oid {
             .push_arc(match ca.key_agreement {
                 KeyAgreement::Dh => 1,
                 KeyAgreement::Ecdh => 2,
-                _ => panic!("Invalid PACE protocol"),
             })
             .unwrap();
         if let Some(cipher) = ca.cipher {

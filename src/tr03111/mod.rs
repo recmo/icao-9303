@@ -20,9 +20,15 @@ use {
 pub const ID_EC_PUBLIC_KEY: Oid = oid("1.2.840.10045.2.1");
 pub const ID_PRIME_FIELD: Oid = oid("1.2.840.10045.1.1");
 
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
+pub struct SubjectPublicKeyInfo {
+    pub algorithm: AlgorithmIdentifier,
+    pub subject_public_key: BitString,
+}
+
 /// RFC 5280 `AlgorithmIdentifier`
 /// This deviates from RFC 5280 by using `Any` for parameters
-#[derive(Clone, Debug, Eq, PartialEq, Sequence, ValueOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
 pub struct AlgorithmIdentifier {
     pub algorithm: Oid,
     pub parameters: ECAlgoParameters,
@@ -36,7 +42,7 @@ pub struct AlgorithmIdentifier {
 ///
 /// [TR-03111] `Parameters`
 /// Details on parameters in [TR-03111]
-#[derive(Clone, Debug, Eq, PartialEq, Choice, ValueOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Choice, ValueOrd)]
 pub enum ECAlgoParameters {
     EcParameters(EcParameters),
     NamedCurve(Oid),
@@ -44,7 +50,7 @@ pub enum ECAlgoParameters {
 }
 
 // TODO: Make by Ref.
-#[derive(Clone, Debug, Eq, PartialEq, Sequence, ValueOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
 pub struct EcParameters {
     pub version: u64,
     pub field_id: FieldID,
@@ -54,13 +60,13 @@ pub struct EcParameters {
     pub cofactor: Option<Int>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Sequence, ValueOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
 pub struct FieldID {
     pub field_type: Oid,
     pub parameters: Any,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Sequence, ValueOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
 pub struct Curve {
     pub a: FieldElement,
     pub b: FieldElement,

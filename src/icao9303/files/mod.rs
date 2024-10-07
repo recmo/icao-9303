@@ -2,21 +2,24 @@ mod file_id;
 
 pub use self::file_id::{DedicatedId, FileId};
 use {
-    super::{asn1::EfSod, Error, Icao9303, Result},
+    super::{Error, Icao9303, Result},
     crate::{ensure_err, iso7816::StatusWord},
-    cms::signed_data::SignedData,
     der::Decode,
     std::collections::HashMap,
 };
 
 pub type FileCache = HashMap<FileId, Option<Vec<u8>>>;
 
+pub trait HasFileId {
+    const FILE_ID: FileId;
+}
+
 impl Icao9303 {
-    pub fn ef_sod(&mut self) -> Result<EfSod> {
+    pub fn read_cached<T: HasFileId + for<'a> Decode<'a>>(&mut self) -> Result<T> {
         let der = self
-            .read_file_cached(FileId::Sod)?
+            .read_file_cached(T::FILE_ID)?
             .ok_or(Error::FileNotFound)?;
-        Ok(EfSod::from_der(der.as_slice())?)
+        Ok(T::from_der(der.as_slice())?)
     }
 
     /// Retrieves a file with caching.

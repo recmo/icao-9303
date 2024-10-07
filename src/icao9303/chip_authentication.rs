@@ -1,15 +1,17 @@
 use {
     super::Icao9303,
     crate::{
-        icao9303::{files::FileId, secure_messaging::SymmetricCipher, SecurityInfo},
-        tr03110::{oid_name, ChipAuthenticationInfo, ChipAuthenticationPublicKeyInfo},
-        tr03111::{ecka, ECAlgoParameters, EllipticCurve, ID_EC_PUBLIC_KEY},
+        icao9303::{
+            asn1::{
+                security_info::{KeyAgreement, SecurityInfo},
+                EfDg14,
+            },
+            secure_messaging::SymmetricCipher,
+        },
+        tr03111::{ecka, ECAlgoParameters, EllipticCurve},
     },
     anyhow::{anyhow, ensure, Result},
-    der::{
-        asn1::{AnyRef, ObjectIdentifier as Oid, SetOfVec},
-        Decode, Tagged,
-    },
+    der::asn1::ObjectIdentifier as Oid,
     rand::{CryptoRng, RngCore},
 };
 
@@ -18,30 +20,33 @@ impl Icao9303 {
         // TODO: Some passports only have ChipAuthenticationPublicKeyInfo but no ChipAuthenticationInfo. In this case, CA_(EC)DH_3DES_CBC_CBC should be assumed.
 
         // Read EF.DG14
-        let ef_dg14 = self.read_file_cached(FileId::Dg14).unwrap().unwrap();
+        let ef_dg14 = self.read_cached::<EfDg14>()?;
 
-        println!("DG14: {}", hex::encode(&ef_dg14));
-        let tagged = AnyRef::from_der(&ef_dg14)?;
-        ensure!(tagged.tag() == 0x6E.try_into().unwrap());
-
-        // Find the Chip Authentication Info
+        // Find the Chip Authentication Info in DG14
         let mut ca = None;
         let mut pk = None;
-        for security_info in SetOfVec::<SecurityInfo>::from_der(tagged.value())?.iter() {
-            dbg!(security_info.protocol, oid_name(security_info.protocol));
-            if let Ok(found_ca) = ChipAuthenticationInfo::try_from(security_info) {
-                ca = Some(found_ca);
-            }
-            if let Ok(found_pk) = ChipAuthenticationPublicKeyInfo::try_from(security_info) {
-                pk = Some(found_pk);
+        for security_info in ef_dg14.0.iter() {
+            match security_info {
+                SecurityInfo::ChipAuthentication(ca_info) => {
+                    ca = Some(*ca_info);
+                }
+                SecurityInfo::ChipAuthenticationPublicKey(pk_info) => {
+                    pk = Some(pk_info.clone());
+                }
+                _ => {}
             }
         }
         let ca = ca.ok_or_else(|| anyhow!("Chip Authentication Info not found"))?;
         let pk = pk.ok_or_else(|| anyhow!("Chip Authentication Public Key Info not found"))?;
-        println!("Using algorithm: {}", ca.algorithm_name());
+        println!("Using algorithm: {}", ca.protocol);
 
-        ensure!(pk.chip_authentication_public_key.algorithm.algorithm == ID_EC_PUBLIC_KEY);
-        let ec_params = match pk.chip_authentication_public_key.algorithm.parameters {
+        // Make sure protocols matches the key.
+        ensure!(ca.protocol.key_agreement == pk.protocol);
+
+        // TODO: Support DH
+        ensure!(pk.protocol == KeyAgreement::Ecdh);
+
+        let ec_params = match pk.public_key.algorithm.parameters {
             ECAlgoParameters::EcParameters(ec_params) => ec_params,
             _ => return Err(anyhow!("Expected ECParameters")),
         };
@@ -49,11 +54,7 @@ impl Icao9303 {
         let curve = EllipticCurve::from_parameters(&ec_params)?;
         dbg!(curve);
 
-        let card_public_key = pk
-            .chip_authentication_public_key
-            .subject_public_key
-            .as_bytes()
-            .unwrap();
+        let card_public_key = pk.public_key.subject_public_key.as_bytes().unwrap();
         let card_public_key = curve.pt_from_bytes(card_public_key)?;
         dbg!(card_public_key);
 
@@ -73,7 +74,7 @@ impl Icao9303 {
         // For AES we need to use 6.2.4.2
 
         // Send MSE Set AT to select the Chip Authentication protocol.
-        self.mset_at(ca.protocol, pk.key_id)?;
+        self.mset_at(ca.protocol.into(), pk.key_id)?;
 
         // Send the public key using general authenticate
         let data = self.general_authenticate(&public_key.to_bytes())?;

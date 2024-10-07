@@ -8,9 +8,9 @@ pub use {
     },
 };
 use {
-    crate::{ensure_err, icao9303::secure_messaging::SymmetricCipher},
+    crate::ensure_err,
     der::{
-        asn1::{ObjectIdentifier as Oid, SetOfVec},
+        asn1::{ObjectIdentifier as Oid, OctetString, SetOfVec},
         Any, Decode, DecodeValue, Encode, EncodeValue, Error, ErrorKind, FixedTag, Header, Length,
         Reader, Result, Sequence, Tag, ValueOrd, Writer,
     },
@@ -24,6 +24,7 @@ use {
 pub const KEY_AGREEMENT_OID: Oid = Oid::new_unwrap("0.4.0.127.0.7.2.2.1");
 pub const ID_ACTIVE_AUTHENTICATION: Oid = Oid::new_unwrap("2.23.136.1.1.5");
 pub const ID_TERMINAL_AUTHENTICATION: Oid = Oid::new_unwrap("0.4.0.127.0.7.2.2.2");
+pub const ID_EF_DIR: Oid = Oid::new_unwrap("2.23.136.1.1.13");
 
 /// A [`SecurityInfos`] object from ICAO-9303-11 9.2.
 ///
@@ -41,6 +42,7 @@ pub enum SecurityInfo {
     ChipAuthenticationPublicKey(ChipAuthenticationPublicKeyInfo),
     ActiveAutentication(ActiveAuthenticationInfo),
     TerminalAuthentication(TerminalAuthenticationInfo),
+    EfDir(EfDirInfo),
     Unknow(AnySecurityInfo),
 }
 
@@ -58,6 +60,12 @@ pub struct AnySecurityInfo {
     pub protocol: Oid,
     pub required_data: Any,
     pub optional_data: Option<Any>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Sequence, ValueOrd)]
+pub struct EfDirInfo {
+    pub protocol: Oid,
+    pub ef_dir: OctetString,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -93,6 +101,7 @@ impl EncodeValue for SecurityInfo {
             Self::ChipAuthenticationPublicKey(info) => info.value_len(),
             Self::ActiveAutentication(info) => info.value_len(),
             Self::TerminalAuthentication(info) => info.value_len(),
+            Self::EfDir(info) => info.value_len(),
             Self::Unknow(info) => info.value_len(),
         }
     }
@@ -105,6 +114,7 @@ impl EncodeValue for SecurityInfo {
             Self::ChipAuthenticationPublicKey(info) => info.encode_value(writer),
             Self::ActiveAutentication(info) => info.encode_value(writer),
             Self::TerminalAuthentication(info) => info.encode_value(writer),
+            Self::EfDir(info) => info.encode_value(writer),
             Self::Unknow(info) => info.encode_value(writer),
         }
     }
@@ -122,41 +132,35 @@ impl<'a> DecodeValue<'a> for SecurityInfo {
         };
         let any = AnySecurityInfo::decode_value(reader, header)?;
         let der = any.to_der()?;
-        dbg!(&any.protocol);
-        dbg!(hex::encode(&der));
         if let Ok(protocol) = PaceProtocol::try_from(any.protocol) {
             if protocol.cipher.is_some() {
-                dbg!();
                 PaceInfo::from_der(&der).map_err(offset_err).map(Self::Pace)
             } else {
-                dbg!();
                 PaceDomainParameterInfo::from_der(&der)
                     .map_err(offset_err)
                     .map(Self::PaceDomainParameter)
             }
         } else if ChipAuthenticationProtocol::try_from(any.protocol).is_ok() {
-            dbg!();
             ChipAuthenticationInfo::from_der(&der)
                 .map_err(offset_err)
                 .map(Self::ChipAuthentication)
         } else if KeyAgreement::try_from(any.protocol).is_ok() {
-            dbg!();
             ChipAuthenticationPublicKeyInfo::from_der(&der)
                 .map_err(offset_err)
                 .map(Self::ChipAuthenticationPublicKey)
         } else if any.protocol == ID_ACTIVE_AUTHENTICATION {
-            dbg!();
             ActiveAuthenticationInfo::from_der(&der)
                 .map_err(offset_err)
                 .map(Self::ActiveAutentication)
         } else if any.protocol == ID_TERMINAL_AUTHENTICATION {
-            dbg!();
-            // TODO: TerminalAuthentication protocol IDs
             TerminalAuthenticationInfo::from_der(&der)
                 .map_err(offset_err)
                 .map(Self::TerminalAuthentication)
+        } else if any.protocol == ID_EF_DIR {
+            EfDirInfo::from_der(&der)
+                .map_err(offset_err)
+                .map(Self::EfDir)
         } else {
-            dbg!();
             Ok(Self::Unknow(any))
         }
     }

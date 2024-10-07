@@ -3,18 +3,13 @@
 mod icao9303;
 mod iso7816;
 mod nfc;
-mod tr03110;
 mod tr03111;
 mod utils;
 
 use {
     crate::{icao9303::Icao9303, nfc::connect_reader},
     anyhow::Result,
-    der::Decode,
-    icao9303::{
-        asn1::{EfCardAccess, EfDg14, EfSod},
-        Error, FileId,
-    },
+    icao9303::{asn1::EfSod, Error, FileId},
     iso7816::StatusWord,
     std::env,
 };
@@ -23,25 +18,6 @@ use {
 
 fn main() -> Result<()> {
     let mut rng = rand::thread_rng();
-
-    let ef_sod = EfSod::from_der(include_bytes!("../dump/EF_SOD.bin"))?;
-    println!("DOCUMENT HASH = 0x{}", hex::encode(ef_sod.document_hash()));
-
-    let ef_card_access = EfCardAccess::from_der(include_bytes!("../dump/EF_CardAccess.bin"))?;
-    println!(
-        "EF_CardAccess: {}",
-        hex::encode(include_bytes!("../dump/EF_CardAccess.bin"))
-    );
-    println!("EF.CardAccess: {:?}", ef_card_access);
-
-    println!(
-        "EF_DG14: {}",
-        hex::encode(include_bytes!("../dump/EF_DG14.bin"))
-    );
-    let ef_ddg_14 = EfDg14::from_der(include_bytes!("../dump/EF_DG14.bin"))?;
-    println!("EF.DG14: {:?}", ef_ddg_14);
-
-    return Ok(());
 
     // Find and open the Proxmark3 device
     let mut nfc = connect_reader()?;
@@ -57,9 +33,6 @@ fn main() -> Result<()> {
     let mrz = env::var("MRZ")?;
     card.basic_access_control(&mut rng, &mrz)?;
     eprintln!("Basic Access Control successful.");
-
-    println!("=== Read SOD");
-    dbg!(card.ef_sod()?);
 
     // Should be secured now!
     // Let's read some files.
@@ -81,7 +54,7 @@ fn main() -> Result<()> {
     // println!("==> Active Authentication: {}", hex::encode(data));
 
     // Dump SOD
-    let sod = card.ef_sod()?;
+    let sod: EfSod = card.read_cached()?;
     println!("DOCUMENT HASH = 0x{}", hex::encode(sod.document_hash()));
 
     // Do Chip Authentication

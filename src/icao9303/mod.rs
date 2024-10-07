@@ -4,14 +4,13 @@ mod chip_authentication;
 mod files;
 pub mod secure_messaging;
 
-pub use self::files::{DedicatedId, FileId};
+pub use self::files::{DedicatedId, FileId, HasFileId};
 use {
     self::secure_messaging::{PlainText, SecureMessaging},
     crate::{
         iso7816::{self, StatusWord},
         nfc::NfcReader,
     },
-    der::{asn1::ObjectIdentifier, AnyRef, Sequence, ValueOrd},
     files::FileCache,
     sha1::{Digest, Sha1},
     thiserror::Error,
@@ -32,14 +31,6 @@ pub struct Icao9303 {
 
     /// Cache of files read from the card.
     file_cache: FileCache,
-}
-
-/// ICAO 9303 9.2 `SecurityInfo`
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Sequence, ValueOrd)]
-pub struct SecurityInfo<'a> {
-    pub protocol: ObjectIdentifier,
-    pub required_data: AnyRef<'a>,
-    pub optional_data: Option<AnyRef<'a>>,
 }
 
 #[derive(Debug, Error)]

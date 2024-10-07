@@ -8,7 +8,7 @@ mod utils;
 
 use {
     crate::{icao9303::Icao9303, nfc::connect_reader},
-    anyhow::Result,
+    anyhow::{anyhow, Context, Result},
     icao9303::{asn1::EfSod, Error, FileId},
     iso7816::StatusWord,
     std::env,
@@ -24,14 +24,14 @@ fn main() -> Result<()> {
 
     // Connect to ISO 14443-A card as reader, keeping the field on.
     let card = nfc.connect()?;
-    dbg!(&card);
-    assert!(card.is_some());
+    ensure_err!(card.is_some(), anyhow!("No card found."));
 
     let mut card = Icao9303::new(nfc);
 
     // println!("=== Basic Access Control.");
     let mrz = env::var("MRZ")?;
-    card.basic_access_control(&mut rng, &mrz)?;
+    card.basic_access_control(&mut rng, &mrz)
+        .context("Error during Basic Access Control.")?;
     eprintln!("Basic Access Control successful.");
 
     // Should be secured now!
@@ -47,6 +47,9 @@ fn main() -> Result<()> {
         }
     }
 
+    // TODO: Verify SOD.
+    // https://github.com/worldcoin/nfc-uniqueness-service/blob/d907d9ef33826034665592685c1e24d25bdb1259/src/routes/v1/mod.rs#L102
+
     // Active Authentication with fixed nonce
     // // ICAO 9303-11 section 6.1
     // eprintln!("=== Active Authentication");
@@ -58,7 +61,8 @@ fn main() -> Result<()> {
     println!("DOCUMENT HASH = 0x{}", hex::encode(sod.document_hash()));
 
     // Do Chip Authentication
-    card.chip_authenticate(&mut rng)?;
+    card.chip_authenticate(&mut rng)
+        .context("Error during Chip Authentication.")?;
 
     Ok(())
 }

@@ -163,7 +163,6 @@ impl Proxmark3 {
         // CONNECT | SELECT_STD | CLEARTRACE
         self.hf14b(0x0841, &[])?;
         let (status, cmd, response) = self.receive_response()?;
-        dbg!(&status, &cmd, &response);
         ensure!(cmd == Command::Hf14bReader as u16);
         if status == Status::CardExchangeFailed as i16 {
             // TODO: Retry with SELECT_SR and then with SELECT_CTS
@@ -214,7 +213,6 @@ impl Proxmark3 {
         let (status, cmd, response) = self.receive_response()?;
         ensure!(status == Status::Success as i16);
         ensure!(cmd == Command::Hf14bReader as u16);
-        dbg!(hex::encode(&response));
         ensure!(response.len() >= 3);
         let response_byte = response[0];
         let length = u16::from_le_bytes([response[1], response[2]]);

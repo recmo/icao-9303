@@ -4,7 +4,7 @@ pub use self::file_id::{DedicatedId, FileId};
 use {
     super::{Error, Icao9303, Result},
     crate::{ensure_err, iso7816::StatusWord},
-    der::Decode,
+    der::{AnyRef, Decode, Encode, ErrorKind, Header, Length, Reader, SliceReader},
     std::collections::HashMap,
 };
 
@@ -26,8 +26,6 @@ impl Icao9303 {
     ///
     /// Returns Ok(None) if the file is not found.
     pub fn read_file_cached(&mut self, file: FileId) -> Result<Option<Vec<u8>>> {
-        const MIN_SIZE: usize = 200; // TODO: Check this value.
-
         // Try cache first.
         if let Some(entry) = self.file_cache.get(&file) {
             return Ok(entry.clone());
@@ -49,22 +47,34 @@ impl Icao9303 {
             Err(e) => return Err(e),
         };
         if let Some(result) = result.as_mut() {
-            if result.len() >= MIN_SIZE {
-                // Read remaining bytes.
-                loop {
-                    // TODO: Use 0xB1 to read larger files.
-                    if result.len() > 65536 {
-                        return Err(Error::ResponseTooLong);
+            loop {
+                // Check if we are done by parsing the header.
+                match SliceReader::new(result)?.peek_header() {
+                    Ok(header) => {
+                        if Length::try_from(result.len())? >= header.length.for_tlv()? {
+                            break;
+                        }
                     }
-                    let offset = (result.len() as u16).to_be_bytes();
-                    let (status, data) =
-                        self.send_apdu(&[0x00, 0xB0, offset[0], offset[1], 0xFF])?;
-                    ensure_err!(status.is_success(), status.into());
-                    result.extend(&data);
-                    if data.len() < MIN_SIZE {
-                        break;
+                    Err(e) => {
+                        if let ErrorKind::Incomplete { .. } = e.kind() {
+                            // Continue reading.
+                        } else {
+                            return Err(e.into());
+                        }
                     }
                 }
+
+                // TODO: Use 0xB1 to read larger files.
+                if result.len() > 65536 {
+                    return Err(Error::ResponseTooLong);
+                }
+                let offset = (result.len() as u16).to_be_bytes();
+                let (status, data) = self.send_apdu(&[0x00, 0xB0, offset[0], offset[1], 0xFF])?;
+                ensure_err!(status.is_success(), status.into());
+                if data.is_empty() {
+                    break;
+                }
+                result.extend(&data);
             }
         }
 
@@ -123,15 +133,14 @@ impl Icao9303 {
         // Note b8 of p2 must be set to 1 to indicate that a short file id is used.
         // Setting P2 to 0 means 'offset zero'.
         // Setting Le to 0x00 means read up to 256 / 65536.
-        let (status, data) = if self.extended_length {
+        let apdu = if self.extended_length {
             // Setting Le to 0x000000 means 'read all' with extended length.
-            let apdu = [0x00, 0xB0, 0x80 | file, 0x00, 0x00, 0x00, 0x00];
-            self.send_apdu(&apdu)?
+            &[0x00, 0xB0, 0x80 | file, 0x00, 0x00, 0x00, 0x00][..]
         } else {
             // Setting Le to 0x00 means 'read all'.
-            let apdu = [0x00, 0xB0, 0x80 | file, 0x00, 0xFF];
-            self.send_apdu(&apdu)?
+            &[0x00, 0xB0, 0x80 | file, 0x00, 0xFF][..]
         };
+        let (status, data) = self.send_apdu(apdu)?;
         ensure_err!(status.is_success(), status.into());
         Ok(data)
     }

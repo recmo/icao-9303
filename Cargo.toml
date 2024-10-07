@@ -7,7 +7,7 @@ edition = "2021"
 aes = "0.8.4"
 anyhow = "1.0.89"
 blake3 = "1.5.4"
-bytes = "1.7.2"
+bytes = "1.7.1"
 cbc = { version = "0.1.2", features = ["block-padding"] }
 cbc-mac = "0.1.1"
 cipher = { version = "0.4.4", features = ["alloc", "block-padding"] }

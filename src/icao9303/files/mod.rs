@@ -2,28 +2,21 @@ mod file_id;
 
 pub use self::file_id::{DedicatedId, FileId};
 use {
-    super::{
-        asn1::{read_with_tag, DocumentSecurityObject},
-        Error, Icao9303, Result,
-    },
-    crate::{ensure_err, icao9303::asn1::ID_SIGNED_DATA, iso7816::StatusWord},
+    super::{asn1::EfSod, Error, Icao9303, Result},
+    crate::{ensure_err, iso7816::StatusWord},
     cms::signed_data::SignedData,
+    der::Decode,
     std::collections::HashMap,
 };
 
 pub type FileCache = HashMap<FileId, Option<Vec<u8>>>;
 
 impl Icao9303 {
-    pub fn ef_sod(&mut self) -> Result<SignedData> {
-        let ef_sod = self
+    pub fn ef_sod(&mut self) -> Result<EfSod> {
+        let der = self
             .read_file_cached(FileId::Sod)?
-            .ok_or(Error::ResponseTooLong)?;
-
-        let parsed =
-            read_with_tag::<DocumentSecurityObject>(ef_sod.as_slice(), 0x77.try_into().unwrap())
-                .expect("Error parsing DER");
-        assert!(parsed.contents.oid == ID_SIGNED_DATA);
-        Ok(parsed.contents.contents)
+            .ok_or(Error::FileNotFound)?;
+        Ok(EfSod::from_der(der.as_slice())?)
     }
 
     /// Retrieves a file with caching.

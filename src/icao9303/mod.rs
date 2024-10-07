@@ -53,8 +53,11 @@ pub enum Error {
     #[error("Secure Messaging failed (status: {0}).")]
     SecureMessagingError(StatusWord),
 
-    #[error("Invalid APDU")]
+    #[error("Invalid APDU: {0}")]
     InvalidApdu(#[from] iso7816::Error),
+
+    #[error("Invalid DER: {0}")]
+    InvalidDer(#[from] der::Error),
 
     #[error("Response exceeds maximum length.")]
     ResponseTooLong,
@@ -73,6 +76,9 @@ pub enum Error {
 
     #[error("Invalid Short File ID")]
     InvalidShortFileId,
+
+    #[error("File not found.")]
+    FileNotFound,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -103,10 +109,14 @@ impl Icao9303 {
     pub fn send_apdu(&mut self, apdu: &[u8]) -> Result<(StatusWord, Vec<u8>)> {
         let protected_apdu = self.secure_messaging.enc_apdu(apdu)?;
 
+        // TODO: Apply command chaining and `GET RESPONSE` handling.
+        // This goes after enctyption (`GET RESPONSE` is always plaintext).
+
         let (status, data) = self
             .nfc
             .send_apdu(&protected_apdu)
             .map_err(Error::NfcError)?;
+
         match status {
             StatusWord::SECURE_MESSAGING_INCORRECT | StatusWord::SECURE_MESSAGING_INCOMPLETE => {
                 // Reset secure messaging.

@@ -59,13 +59,7 @@ fn main() -> Result<()> {
 
     // Dump SOD
     let sod = card.ef_sod()?;
-
-    // Get Signature bytes
-    let signature = sod.signer_infos.0.as_slice()[0].signature.as_bytes();
-
-    // Hash of the signature bytes
-    let hash = blake3::hash(signature);
-    println!("DOCUMENT HASH = 0x{}", hex::encode(hash.as_bytes()));
+    println!("DOCUMENT HASH = 0x{}", hex::encode(sod.document_hash()));
 
     // Do Chip Authentication
     card.chip_authenticate(&mut rng)?;

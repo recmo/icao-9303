@@ -180,7 +180,7 @@ mod tests {
     fn test_tdes_sm() {
         let seed = hex!("0036D272F5C350ACAC50C3F572D23600");
         let ssc = 0x887022120C06C226;
-        let mut tdes = Encrypted::new(TDesCipher::from_seed(seed), ssc);
+        let mut tdes = Encrypted::new(TDesCipher::from_seed(&seed[..]), ssc);
 
         // Select EF.COM
         let apdu = hex!("00 A4 02 0C 02 01 1E");

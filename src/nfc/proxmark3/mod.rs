@@ -208,22 +208,35 @@ impl Proxmark3 {
     }
 
     fn hf14b_send(&mut self, apdu: &[u8]) -> Result<Vec<u8>> {
-        // TODO: Support extended length
-        self.hf14b(0x0004, apdu)?;
-        let (status, cmd, response) = self.receive_response()?;
+        // TODO: Support input chaining.
+        let mut result = Vec::new();
+
+        // Output chaining.
+        let mut chaining = self.hf14b_apdu(apdu, &mut result)?;
+        while chaining {
+            chaining = self.hf14b_apdu(&[], &mut result)?;
+        }
+        Ok(result)
+    }
+
+    fn hf14b_apdu(&mut self, data_in: &[u8], data_out: &mut Vec<u8>) -> Result<bool> {
+        // TODO: Support send chaining.
+        self.hf14b(0x0004, data_in)?;
+        let (status, cmd, mut response) = self.receive_response()?;
         ensure!(status == Status::Success as i16);
         ensure!(cmd == Command::Hf14bReader as u16);
-        ensure!(response.len() >= 3);
-        let response_byte = response[0];
-        let length = u16::from_le_bytes([response[1], response[2]]);
-        // TODO: Check alternation of response byte
-        // ensure!(response_byte == 0x02 || response_byte == 0x03);
-        ensure!(length as usize == response.len() - 3);
-        let data = &response[3..];
-        // Remove CRC bytes
+        ensure!(response.len() >= 5);
+        // Parse Header
+        let (header, response) = response.split_at(3);
+        let response_byte = header[0];
+        let length = u16::from_le_bytes([header[1], header[2]]);
+        let chaining = response_byte & 0x10 == 0x10;
+        ensure!(length as usize == response.len());
+
         // TODO: Check CRC
-        let data = &data[..data.len() - 2];
-        Ok(data.to_vec())
+        let (response, _crc) = response.split_at(response.len() - 2);
+        data_out.extend_from_slice(response);
+        Ok(chaining)
     }
 
     fn hf14b(&mut self, command: u16, data: &[u8]) -> Result<()> {

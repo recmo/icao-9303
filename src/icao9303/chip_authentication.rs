@@ -21,6 +21,7 @@ impl Icao9303 {
 
         // Read EF.DG14
         let ef_dg14 = self.read_cached::<EfDg14>()?;
+        dbg!(&ef_dg14);
 
         // Find the Chip Authentication Info in DG14
         let mut ca = None;

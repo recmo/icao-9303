@@ -4,6 +4,7 @@ pub use self::file_id::{DedicatedId, FileId};
 use {
     super::{Error, Icao9303, Result},
     crate::{ensure_err, iso7816::StatusWord},
+    anyhow::ensure,
     der::{AnyRef, Decode, Encode, ErrorKind, Header, Length, Reader, SliceReader},
     std::collections::HashMap,
 };
@@ -23,6 +24,8 @@ impl Icao9303 {
     }
 
     /// Retrieves a file with caching.
+    ///
+    /// Assumes the file is a single TLV structure.
     ///
     /// Returns Ok(None) if the file is not found.
     pub fn read_file_cached(&mut self, file: FileId) -> Result<Option<Vec<u8>>> {
@@ -49,33 +52,21 @@ impl Icao9303 {
         if let Some(result) = result.as_mut() {
             loop {
                 // Check if we are done by parsing the header.
-                match SliceReader::new(result)?.peek_header() {
-                    Ok(header) => {
-                        if Length::try_from(result.len())? >= header.length.for_tlv()? {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        if let ErrorKind::Incomplete { .. } = e.kind() {
-                            // Continue reading.
-                        } else {
-                            return Err(e.into());
-                        }
-                    }
-                }
-
-                // TODO: Use 0xB1 to read larger files.
-                if result.len() > 65536 {
-                    return Err(Error::ResponseTooLong);
-                }
-                let offset = (result.len() as u16).to_be_bytes();
-                let (status, data) = self.send_apdu(&[0x00, 0xB0, offset[0], offset[1], 0xFF])?;
-                ensure_err!(status.is_success(), status.into());
-                if data.is_empty() {
+                if sniff_len(result)? <= Some(result.len()) {
                     break;
                 }
-                result.extend(&data);
+                let chunk = self.read_binary_offset(result.len())?;
+                if chunk.is_empty() {
+                    break;
+                }
+                result.extend(&chunk);
             }
+
+            // Some (e.g. Polish) passports will zero-extend the file on READ BINARY OFFSET
+            // commands. Trim the file to the actual length.
+            let expected_len = sniff_len(result)?.ok_or(Error::ResponseDataUnexpected)?;
+            ensure_err!(result.len() >= expected_len, Error::ResponseDataUnexpected);
+            result.truncate(expected_len);
         }
 
         // Insert in cache
@@ -138,10 +129,42 @@ impl Icao9303 {
             &[0x00, 0xB0, 0x80 | file, 0x00, 0x00, 0x00, 0x00][..]
         } else {
             // Setting Le to 0x00 means 'read all'.
-            &[0x00, 0xB0, 0x80 | file, 0x00, 0xFF][..]
+            &[0x00, 0xB0, 0x80 | file, 0x00, 0x00][..]
         };
         let (status, data) = self.send_apdu(apdu)?;
         ensure_err!(status.is_success(), status.into());
         Ok(data)
+    }
+
+    /// Reads the current file at a given offset.
+    pub fn read_binary_offset(&mut self, offset: usize) -> Result<Vec<u8>> {
+        // TODO: use B1 for large offsets.
+        ensure_err!(offset < (1 << 15), Error::ResponseTooLong);
+        let offset = (offset as u16).to_be_bytes();
+
+        // Setting Le to 0x00 means 'read all'.
+        // See ISO 7816-4 section 11.3.3.
+        // NOTE: Polish passports will zero-pad the response to 256 bytes, going beyond EOF.
+        let (status, data) = self.send_apdu(&[0x00, 0xB0, offset[0], offset[1], 0x00])?;
+        ensure_err!(status.is_success(), status.into());
+        Ok(data)
+    }
+}
+
+/// Sniff the size of a TLV encoded data structure.
+fn sniff_len(bytes: &[u8]) -> Result<Option<usize>> {
+    // Check if we are done by parsing the header.
+    match SliceReader::new(bytes)?.peek_header() {
+        Ok(header) => {
+            let total_len: u32 = header.length.for_tlv()?.into();
+            Ok(Some(total_len as usize))
+        }
+        Err(e) => {
+            if let ErrorKind::Incomplete { .. } = e.kind() {
+                Ok(None)
+            } else {
+                return Err(e.into());
+            }
+        }
     }
 }

@@ -25,6 +25,7 @@ fn main() -> Result<()> {
     // Connect to ISO 14443-A card as reader, keeping the field on.
     let card = nfc.connect()?;
     ensure_err!(card.is_some(), anyhow!("No card found."));
+    dbg!(&card);
 
     let mut card = Icao9303::new(nfc);
 
@@ -33,6 +34,9 @@ fn main() -> Result<()> {
     card.basic_access_control(&mut rng, &mrz)
         .context("Error during Basic Access Control.")?;
     eprintln!("Basic Access Control successful.");
+
+    // let ef_sod = card.read_cached::<EfSod>()?;
+    // println!("DOCUMENT HASH = 0x{}", hex::encode(ef_sod.document_hash()));
 
     // Should be secured now!
     // Let's read some files.

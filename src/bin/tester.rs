@@ -2,6 +2,7 @@ use {
     anyhow::Result,
     argh::FromArgs,
     base64::{engine::general_purpose::STANDARD as BASE64, Engine as _},
+    cms::{cert::CertificateChoices, signed_data},
     der::{Decode, Encode},
     glob::{glob, Pattern},
     hex_literal::hex,
@@ -74,6 +75,26 @@ fn main() -> Result<()> {
             "Document with hash 0x{}",
             hex::encode(document.sod.document_hash())
         );
+        let signed_data = document.sod.signed_data();
+        let certs = signed_data.certificates.as_ref().unwrap();
+        for cert in certs.0.iter() {
+            match cert {
+                CertificateChoices::Certificate(cert) => {
+                    println!(" - Certificate:");
+                    println!("   - Subject: {}", cert.tbs_certificate.subject);
+                    println!("   - Issuer: {}", cert.tbs_certificate.issuer);
+                    println!(
+                        "   - Validity: {} to {}",
+                        cert.tbs_certificate.validity.not_before,
+                        cert.tbs_certificate.validity.not_after
+                    );
+                }
+                CertificateChoices::Other(cert) => {
+                    println!(" - Other certificate: {:?}", cert);
+                    panic!("Unsupported certificate type");
+                }
+            }
+        }
 
         // Get LDS Security Object and it's hash algorithm.
         let lso = document.sod.lds_security_object()?;

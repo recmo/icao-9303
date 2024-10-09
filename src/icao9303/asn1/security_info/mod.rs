@@ -100,10 +100,10 @@ impl SecurityInfo {
             Self::Pace(info) => info.protocol.to_string(),
             Self::PaceDomainParameter(info) => info.protocol.to_string(),
             Self::ChipAuthentication(info) => info.protocol.to_string(),
-            Self::ChipAuthenticationPublicKey(info) => format!("CA-{}-PUBKEY", info.protocol),
-            Self::ActiveAutentication(info) => "AA".to_string(),
-            Self::TerminalAuthentication(info) => "TA".to_string(),
-            Self::EfDir(info) => "EF_DIR".to_string(),
+            Self::ChipAuthenticationPublicKey(info) => info.to_string(),
+            Self::ActiveAutentication(_info) => "AA".to_string(),
+            Self::TerminalAuthentication(_info) => "TA".to_string(),
+            Self::EfDir(_info) => "EF_DIR".to_string(),
             Self::Unknow(info) => info.protocol.to_string(),
         }
     }

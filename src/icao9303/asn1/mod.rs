@@ -1,13 +1,13 @@
-mod algorithm_identifier;
 mod application_tagged;
 mod content_info;
+mod digest_algorithm_identifier;
 mod ordered_set;
 pub mod security_info;
 
 pub use self::{
-    algorithm_identifier::AlgorithmIdentifier,
     application_tagged::ApplicationTagged,
     content_info::{ContentInfo, ContentType},
+    digest_algorithm_identifier::DigestAlgorithmIdentifier,
 };
 use {
     super::{FileId, HasFileId},
@@ -15,10 +15,16 @@ use {
     cms::signed_data::{EncapsulatedContentInfo, SignedData, SignerInfo},
     der::{
         asn1::{ObjectIdentifier as Oid, OctetString, PrintableString},
-        Decode, Error, ErrorKind, Length, Result, Sequence, Tag,
+        Any, Decode, Error, ErrorKind, Length, Result, Sequence, Tag, ValueOrd,
     },
     security_info::SecurityInfos,
 };
+
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
+pub struct AnyAlgorithmIdentifier {
+    pub algorithm: Oid,
+    pub parameters: Option<Any>,
+}
 
 impl ContentType for SignedData {
     const CONTENT_TYPE: Oid = Oid::new_unwrap("1.2.840.113549.1.7.2");
@@ -44,7 +50,7 @@ pub type EfSod = ApplicationTagged<23, ContentInfo<SignedData>>;
 #[derive(Clone, Debug, PartialEq, Eq, Sequence)]
 pub struct LdsSecurityObject {
     pub version: u64,
-    pub hash_algorithm: AlgorithmIdentifier,
+    pub hash_algorithm: DigestAlgorithmIdentifier,
     pub data_group_hash_values: Vec<DataGroupHash>,
     pub lds_version_info: Option<LdsVersionInfo>,
 }

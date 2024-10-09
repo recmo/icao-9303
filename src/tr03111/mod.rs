@@ -3,6 +3,7 @@ mod prime_field;
 
 pub use self::{elliptic_curve::EllipticCurve, prime_field::PrimeField};
 use {
+    crate::icao9303::asn1::{security_info::KeyAgreement, AnyAlgorithmIdentifier},
     anyhow::{ensure, Result},
     der::{
         asn1::{BitString, Int, IntRef, Null, ObjectIdentifier as Oid, OctetString},
@@ -22,16 +23,8 @@ pub const ID_PRIME_FIELD: Oid = Oid::new_unwrap("1.2.840.10045.1.1");
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
 pub struct SubjectPublicKeyInfo {
-    pub algorithm: AlgorithmIdentifier,
+    pub algorithm: AnyAlgorithmIdentifier,
     pub subject_public_key: BitString,
-}
-
-/// RFC 5280 `AlgorithmIdentifier`
-/// This deviates from RFC 5280 by using `Any` for parameters
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
-pub struct AlgorithmIdentifier {
-    pub algorithm: Oid,
-    pub parameters: ECAlgoParameters,
 }
 
 /// Elliptic Curve Algorithm Parameters.
@@ -76,6 +69,31 @@ pub struct Curve {
 pub type FieldElement = OctetString;
 
 pub type ECPoint = OctetString;
+
+impl SubjectPublicKeyInfo {
+    pub fn ensure_valid_for(&self, key_agreement: KeyAgreement) -> Result<()> {
+        // TODO: Errors.
+        match key_agreement {
+            KeyAgreement::Ecdh => {
+                assert_eq!(
+                    self.algorithm.algorithm, ID_EC_PUBLIC_KEY,
+                    "Invalid algorithm"
+                );
+            }
+            KeyAgreement::Dh => {
+                assert_eq!(
+                    self.algorithm.algorithm, ID_PRIME_FIELD,
+                    "Invalid algorithm"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn ensure_valid(&self) {
+        assert_eq!(self.algorithm.algorithm, ID_EC_PUBLIC_KEY);
+    }
+}
 
 /// Elliptic Curve Key Agreement
 /// See TR-03111 section 4.3.1

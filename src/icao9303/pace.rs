@@ -1,18 +1,7 @@
 use {
     super::Icao9303,
-    crate::{
-        icao9303::{
-            asn1::{
-                security_info::{KeyAgreement, PaceInfo, SecurityInfo},
-                EfDg14,
-            },
-            secure_messaging::{aes::kdf_128, SymmetricCipher},
-            seed_from_mrz,
-        },
-        tr03111::{ecka, ECAlgoParameters, EcParameters, EllipticCurve},
-    },
-    anyhow::{anyhow, ensure, Result},
-    der::{asn1::ObjectIdentifier as Oid, Decode},
+    crate::{icao9303::secure_messaging::aes::kdf_128, tr03111::EcParameters},
+    anyhow::Result,
     rand::{CryptoRng, RngCore},
     sha1::{Digest, Sha1},
 };

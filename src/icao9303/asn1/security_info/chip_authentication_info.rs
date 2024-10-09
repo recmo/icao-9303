@@ -42,6 +42,14 @@ impl ChipAuthenticationInfo {
     }
 }
 
+impl ChipAuthenticationPublicKeyInfo {
+    pub fn ensure_valid(&self) -> Result<()> {
+        assert_eq!(self.protocol, KeyAgreement::Ecdh);
+        self.public_key.ensure_valid_for(self.protocol).unwrap();
+        Ok(())
+    }
+}
+
 impl Display for ChipAuthenticationProtocol {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "CA-{}", self.key_agreement)?;
@@ -49,6 +57,17 @@ impl Display for ChipAuthenticationProtocol {
             write!(f, "-{}", cipher)?;
         }
         Ok(())
+    }
+}
+
+impl Display for ChipAuthenticationPublicKeyInfo {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(
+            f,
+            "CA-PUBKEY-{}-{}",
+            self.protocol,
+            self.public_key.subject_public_key.bit_len()
+        )
     }
 }
 

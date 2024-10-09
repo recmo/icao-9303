@@ -8,7 +8,7 @@ use {
             },
             secure_messaging::SymmetricCipher,
         },
-        tr03111::{ecka, ECAlgoParameters, EllipticCurve},
+        tr03111::{ecka, EllipticCurve},
     },
     anyhow::{anyhow, ensure, Result},
     der::asn1::ObjectIdentifier as Oid,
@@ -47,10 +47,11 @@ impl Icao9303 {
         // TODO: Support DH
         ensure!(pk.protocol == KeyAgreement::Ecdh);
 
-        let ec_params = match pk.public_key.algorithm.parameters {
-            ECAlgoParameters::EcParameters(ec_params) => ec_params,
-            _ => return Err(anyhow!("Expected ECParameters")),
-        };
+        let ec_params = todo!();
+        // match pk.public_key.algorithm.parameters {
+        //     ECAlgoParameters::EcParameters(ec_params) => ec_params,
+        //     _ => return Err(anyhow!("Expected ECParameters")),
+        // };
 
         let curve = EllipticCurve::from_parameters(&ec_params)?;
         dbg!(curve);

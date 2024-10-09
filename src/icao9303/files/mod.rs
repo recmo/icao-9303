@@ -4,8 +4,7 @@ pub use self::file_id::{DedicatedId, FileId};
 use {
     super::{Error, Icao9303, Result},
     crate::{ensure_err, iso7816::StatusWord},
-    anyhow::ensure,
-    der::{AnyRef, Decode, Encode, ErrorKind, Header, Length, Reader, SliceReader},
+    der::{Decode, ErrorKind, Reader, SliceReader},
     std::collections::HashMap,
 };
 

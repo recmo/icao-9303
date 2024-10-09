@@ -124,7 +124,7 @@ fn main() -> Result<()> {
         // Print DG14 supported protocols
         if let Some(dg14) = document.dg14 {
             for entry in dg14.0.iter() {
-                println!(" - DG14: {}", entry.protocol_name());
+                println!(" - DG14: {}, {:?}", entry.protocol_name(), entry);
             }
         }
     }

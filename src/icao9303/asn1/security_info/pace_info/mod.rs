@@ -1,7 +1,7 @@
 mod pace_protocol;
 
 pub use pace_protocol::PaceProtocol;
-use {super::KeyAgreement, crate::tr03111::AlgorithmIdentifier, der::Sequence};
+use {super::KeyAgreement, crate::icao9303::asn1::AnyAlgorithmIdentifier, der::Sequence};
 
 /// See ICAO-9303-11 9.2.1
 #[derive(Clone, PartialEq, Eq, Debug, Sequence)]
@@ -20,7 +20,7 @@ pub struct PaceDomainParameterInfo {
     pub protocol: PaceProtocol,
 
     /// Algorithm identifier for the domain parameter.
-    pub domain_parameter: AlgorithmIdentifier,
+    pub domain_parameter: AnyAlgorithmIdentifier,
     pub parameter_id: Option<u64>,
 }
 

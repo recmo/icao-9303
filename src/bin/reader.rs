@@ -1,16 +1,13 @@
 #![allow(dead_code)]
 
-mod icao9303;
-mod iso7816;
-mod nfc;
-mod tr03111;
-mod utils;
-
 use {
-    crate::{icao9303::Icao9303, nfc::connect_reader},
     anyhow::{anyhow, Context, Result},
-    icao9303::{asn1::EfSod, Error, FileId},
-    iso7816::StatusWord,
+    icao_9303_nfc::{
+        ensure_err,
+        icao9303::{asn1::EfSod, Error, FileId, Icao9303},
+        iso7816::StatusWord,
+        nfc::connect_reader,
+    },
     std::env,
 };
 

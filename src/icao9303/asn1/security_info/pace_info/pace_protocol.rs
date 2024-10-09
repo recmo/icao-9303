@@ -55,8 +55,8 @@ impl TryFrom<Oid> for PaceProtocol {
         };
         ensure_err!(pace_oid == PACE_OID, err);
         let (key_agreement, key_mapping) = match oid.arc(9).unwrap() {
-            1 => (KeyAgreement::Dh, KeyMapping::Im),
-            2 => (KeyAgreement::Ecdh, KeyMapping::Im),
+            1 => (KeyAgreement::Dh, KeyMapping::Gm),
+            2 => (KeyAgreement::Ecdh, KeyMapping::Gm),
             3 => (KeyAgreement::Dh, KeyMapping::Im),
             4 => (KeyAgreement::Ecdh, KeyMapping::Im),
             // DH CAM not allowed, but 5 reserved

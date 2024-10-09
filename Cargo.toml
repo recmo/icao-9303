@@ -28,6 +28,13 @@ sha2 = "0.10.8"
 spki = "0.7.3"
 thiserror = "1.0.64"
 
+[target.'cfg(not(lib))'.dependencies]
+argh = "0.1.12"
+glob = "0.3.1"
+serde = "1.0.210"
+serde_json = "1.0.128"
+base64 = "0.22.1"
+
 [features]
 default = ["proxmark3"]
 proxmark3 = ["rusb"]

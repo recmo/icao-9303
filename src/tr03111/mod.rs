@@ -17,8 +17,8 @@ use {
 // ANSI X9.62 1.2.840.10045
 // public key 2
 // elliptic curve 1
-pub const ID_EC_PUBLIC_KEY: Oid = oid("1.2.840.10045.2.1");
-pub const ID_PRIME_FIELD: Oid = oid("1.2.840.10045.1.1");
+pub const ID_EC_PUBLIC_KEY: Oid = Oid::new_unwrap("1.2.840.10045.2.1");
+pub const ID_PRIME_FIELD: Oid = Oid::new_unwrap("1.2.840.10045.1.1");
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
 pub struct SubjectPublicKeyInfo {
@@ -76,11 +76,6 @@ pub struct Curve {
 pub type FieldElement = OctetString;
 
 pub type ECPoint = OctetString;
-
-/// TODO: Deduplicate and move to some utility module
-const fn oid(oid: &'static str) -> Oid {
-    Oid::new_unwrap(oid)
-}
 
 /// Elliptic Curve Key Agreement
 /// See TR-03111 section 4.3.1

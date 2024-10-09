@@ -8,9 +8,10 @@ pub use {
     },
 };
 use {
+    super::ordered_set::OrderedSet,
     crate::ensure_err,
     der::{
-        asn1::{ObjectIdentifier as Oid, OctetString, SetOfVec},
+        asn1::{ObjectIdentifier as Oid, OctetString},
         Any, Decode, DecodeValue, Encode, EncodeValue, Error, ErrorKind, FixedTag, Header, Length,
         Reader, Result, Sequence, Tag, ValueOrd, Writer,
     },
@@ -31,7 +32,7 @@ pub const ID_EF_DIR: Oid = Oid::new_unwrap("2.23.136.1.1.13");
 /// ```asn1
 /// SecurityInfos ::= SET OF SecurityInfo
 /// ```
-pub type SecurityInfos = SetOfVec<SecurityInfo>;
+pub type SecurityInfos = OrderedSet<SecurityInfo>;
 
 /// Various subtypes of `SecurityInfo` from ICAO-9303-11 9.2.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -77,8 +78,36 @@ pub enum KeyAgreement {
     Ecdh,
 }
 
-pub type ActiveAuthenticationInfo = Any; // TODO
-pub type TerminalAuthenticationInfo = Any; // TODO
+pub type ActiveAuthenticationInfo = AnySecurityInfo; // TODO
+pub type TerminalAuthenticationInfo = AnySecurityInfo; // TODO
+
+impl SecurityInfo {
+    pub fn protocol(&self) -> Oid {
+        match self {
+            Self::Pace(info) => Oid::from(info.protocol),
+            Self::PaceDomainParameter(info) => info.protocol.into(),
+            Self::ChipAuthentication(info) => info.protocol.into(),
+            Self::ChipAuthenticationPublicKey(info) => info.protocol.into(),
+            Self::ActiveAutentication(info) => info.protocol,
+            Self::TerminalAuthentication(info) => info.protocol,
+            Self::EfDir(info) => info.protocol,
+            Self::Unknow(info) => info.protocol,
+        }
+    }
+
+    pub fn protocol_name(&self) -> String {
+        match self {
+            Self::Pace(info) => info.protocol.to_string(),
+            Self::PaceDomainParameter(info) => info.protocol.to_string(),
+            Self::ChipAuthentication(info) => info.protocol.to_string(),
+            Self::ChipAuthenticationPublicKey(info) => format!("CA-{}-PUBKEY", info.protocol),
+            Self::ActiveAutentication(info) => "AA".to_string(),
+            Self::TerminalAuthentication(info) => "TA".to_string(),
+            Self::EfDir(info) => "EF_DIR".to_string(),
+            Self::Unknow(info) => info.protocol.to_string(),
+        }
+    }
+}
 
 impl Sequence<'_> for SecurityInfo {}
 
@@ -153,6 +182,7 @@ impl<'a> DecodeValue<'a> for SecurityInfo {
                 .map_err(offset_err)
                 .map(Self::ActiveAutentication)
         } else if any.protocol == ID_TERMINAL_AUTHENTICATION {
+            // TODO: This ID can be a prefix.
             TerminalAuthenticationInfo::from_der(&der)
                 .map_err(offset_err)
                 .map(Self::TerminalAuthentication)

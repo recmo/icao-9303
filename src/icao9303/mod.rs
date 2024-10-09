@@ -2,6 +2,7 @@ pub mod asn1;
 mod bac;
 mod chip_authentication;
 mod files;
+mod pace;
 pub mod secure_messaging;
 
 pub use self::files::{DedicatedId, FileId, HasFileId};

@@ -1,13 +1,11 @@
 use {
     super::Icao9303,
     crate::{
-        icao9303::{
-            asn1::{
-                security_info::{KeyAgreement, SecurityInfo},
-                EfDg14,
-            },
-            secure_messaging::SymmetricCipher,
+        asn1::{
+            security_info::{KeyAgreement, SecurityInfo},
+            EfDg14,
         },
+        icao9303::secure_messaging::SymmetricCipher,
         tr03111::{ecka, EllipticCurve},
     },
     anyhow::{anyhow, ensure, Result},
@@ -24,21 +22,7 @@ impl Icao9303 {
         dbg!(&ef_dg14);
 
         // Find the Chip Authentication Info in DG14
-        let mut ca = None;
-        let mut pk = None;
-        for security_info in ef_dg14.0.iter() {
-            match security_info {
-                SecurityInfo::ChipAuthentication(ca_info) => {
-                    ca = Some(*ca_info);
-                }
-                SecurityInfo::ChipAuthenticationPublicKey(pk_info) => {
-                    pk = Some(pk_info.clone());
-                }
-                _ => {}
-            }
-        }
-        let ca = ca.ok_or_else(|| anyhow!("Chip Authentication Info not found"))?;
-        let pk = pk.ok_or_else(|| anyhow!("Chip Authentication Public Key Info not found"))?;
+        let (ca, pk) = ef_dg14.chip_authentication().unwrap();
         println!("Using algorithm: {}", ca.protocol);
 
         // Make sure protocols matches the key.

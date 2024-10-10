@@ -2,13 +2,12 @@ use {
     anyhow::Result,
     argh::FromArgs,
     base64::{engine::general_purpose::STANDARD as BASE64, Engine as _},
-    cms::{cert::CertificateChoices, signed_data},
+    cms::cert::CertificateChoices,
     der::{Decode, Encode},
     glob::{glob, Pattern},
-    hex_literal::hex,
-    icao_9303_nfc::icao9303::asn1::{EfCardAccess, EfDg14, EfSod},
+    icao_9303_nfc::asn1::{EfCardAccess, EfDg14, EfSod},
     serde::{Deserialize, Deserializer},
-    std::{fmt::Debug, fs::File, io::BufReader, thread::panicking},
+    std::{fmt::Debug, fs::File, io::BufReader},
 };
 
 /// Test a parsing of exported eMRTD documents.
@@ -125,6 +124,10 @@ fn main() -> Result<()> {
         if let Some(dg14) = document.dg14 {
             for entry in dg14.0.iter() {
                 println!(" - DG14: {}, {:?}", entry.protocol_name(), entry);
+            }
+            if let Some((ca, capk)) = dg14.chip_authentication() {
+                println!(" - DG14: CA: {:?}, CAPK: {:?}", ca, capk);
+                assert_eq!(ca.version, 1);
             }
         }
     }

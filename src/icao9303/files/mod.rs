@@ -3,7 +3,11 @@ mod file_id;
 pub use self::file_id::{DedicatedId, FileId};
 use {
     super::{Error, Icao9303, Result},
-    crate::{ensure_err, iso7816::StatusWord},
+    crate::{
+        asn1::{EfCardAccess, EfDg14, EfSod},
+        ensure_err,
+        iso7816::StatusWord,
+    },
     der::{Decode, ErrorKind, Reader, SliceReader},
     std::collections::HashMap,
 };
@@ -12,6 +16,18 @@ pub type FileCache = HashMap<FileId, Option<Vec<u8>>>;
 
 pub trait HasFileId {
     const FILE_ID: FileId;
+}
+
+impl HasFileId for EfSod {
+    const FILE_ID: FileId = FileId::Sod;
+}
+
+impl HasFileId for EfCardAccess {
+    const FILE_ID: FileId = FileId::CardAccess;
+}
+
+impl HasFileId for EfDg14 {
+    const FILE_ID: FileId = FileId::Dg14;
 }
 
 impl Icao9303 {

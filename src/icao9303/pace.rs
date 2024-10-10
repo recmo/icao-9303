@@ -1,6 +1,6 @@
 use {
     super::Icao9303,
-    crate::{icao9303::secure_messaging::aes::kdf_128, tr03111::EcParameters},
+    crate::{asn1::public_key::EcParameters, icao9303::secure_messaging::aes::kdf_128},
     anyhow::Result,
     rand::{CryptoRng, RngCore},
     sha1::{Digest, Sha1},

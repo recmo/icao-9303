@@ -2,6 +2,7 @@ mod application_tagged;
 mod content_info;
 mod digest_algorithm_identifier;
 mod ordered_set;
+pub mod public_key;
 pub mod security_info;
 
 pub use self::{
@@ -10,14 +11,15 @@ pub use self::{
     digest_algorithm_identifier::DigestAlgorithmIdentifier,
 };
 use {
-    super::{FileId, HasFileId},
     crate::ensure_err,
     cms::signed_data::{EncapsulatedContentInfo, SignedData, SignerInfo},
     der::{
         asn1::{ObjectIdentifier as Oid, OctetString, PrintableString},
         Any, Decode, Error, ErrorKind, Length, Result, Sequence, Tag, ValueOrd,
     },
-    security_info::SecurityInfos,
+    security_info::{
+        ChipAuthenticationInfo, ChipAuthenticationPublicKeyInfo, SecurityInfo, SecurityInfos,
+    },
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
@@ -74,6 +76,26 @@ impl ContentType for LdsSecurityObject {
     const CONTENT_TYPE: Oid = Oid::new_unwrap("2.23.136.1.1.1");
 }
 
+impl EfDg14 {
+    pub fn chip_authentication(
+        &self,
+    ) -> Option<(&ChipAuthenticationInfo, &ChipAuthenticationPublicKeyInfo)> {
+        // For now, we take the first ChipAuthentication and ChipAuthenticationPublicKey.
+        let ca = self.0.iter().find_map(|si| match si {
+            SecurityInfo::ChipAuthentication(ca) => Some(ca),
+            _ => None,
+        })?;
+        // Find the corresponding ChipAuthenticationPublicKey based on key id (could both be None)
+        let capk = self.0.iter().find_map(|si| match si {
+            SecurityInfo::ChipAuthenticationPublicKey(capk) if capk.key_id == ca.key_id => {
+                Some(capk)
+            }
+            _ => None,
+        })?;
+        Some((ca, capk))
+    }
+}
+
 impl EfSod {
     pub fn signed_data(&self) -> &SignedData {
         &self.0 .0
@@ -126,18 +148,6 @@ impl EfSod {
             .decode_as::<OctetString>()?;
         LdsSecurityObject::from_der(octet_string.as_bytes())
     }
-}
-
-impl HasFileId for EfSod {
-    const FILE_ID: FileId = FileId::Sod;
-}
-
-impl HasFileId for EfCardAccess {
-    const FILE_ID: FileId = FileId::CardAccess;
-}
-
-impl HasFileId for EfDg14 {
-    const FILE_ID: FileId = FileId::Dg14;
 }
 
 impl LdsSecurityObject {

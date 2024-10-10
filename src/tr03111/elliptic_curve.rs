@@ -1,8 +1,6 @@
 use {
-    super::{
-        parse_uint, parse_uint_ref, prime_field::PrimeFieldElement, EcParameters, PrimeField,
-        ID_PRIME_FIELD,
-    },
+    super::{parse_uint, parse_uint_ref, prime_field::PrimeFieldElement, PrimeField},
+    crate::asn1::public_key::{EcParameters, ID_PRIME_FIELD},
     anyhow::{bail, ensure, Result},
     der::asn1::IntRef,
     ruint::aliases::U320,

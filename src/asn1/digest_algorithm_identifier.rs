@@ -2,8 +2,8 @@ use {
     super::AnyAlgorithmIdentifier,
     der::{
         asn1::{Null, ObjectIdentifier as Oid},
-        Any, Decode, DecodeValue, Encode, EncodeValue, Error, ErrorKind, Length, Reader, Result,
-        Sequence, Tag, Tagged, ValueOrd, Writer,
+        Any, DecodeValue, Encode, EncodeValue, Error, ErrorKind, Length, Reader, Result, Sequence,
+        Tag, Tagged, Writer,
     },
     sha1::Digest,
 };

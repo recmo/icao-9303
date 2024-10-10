@@ -31,6 +31,29 @@ pub struct ContentInfo<T: ContentType>(pub T);
 
 impl<T: ContentType> Sequence<'_> for ContentInfo<T> {}
 
+impl<T: ContentType> EncodeValue for ContentInfo<T> {
+    fn value_len(&self) -> Result<Length> {
+        let content_type_len = T::CONTENT_TYPE.encoded_len()?;
+        let content_len = ContextSpecificRef {
+            tag_number: TagNumber::N0,
+            tag_mode: TagMode::Explicit,
+            value: &self.0,
+        }
+        .encoded_len()?;
+        content_type_len + content_len
+    }
+
+    fn encode_value(&self, writer: &mut impl Writer) -> Result<()> {
+        T::CONTENT_TYPE.encode(writer)?;
+        ContextSpecificRef {
+            tag_number: TagNumber::N0,
+            tag_mode: TagMode::Explicit,
+            value: &self.0,
+        }
+        .encode(writer)
+    }
+}
+
 impl<'a, T: ContentType> DecodeValue<'a> for ContentInfo<T> {
     fn decode_value<R: Reader<'a>>(reader: &mut R, header: Header) -> Result<Self> {
         reader.read_nested(header.length, |reader| {
@@ -59,29 +82,6 @@ impl<'a, T: ContentType> DecodeValue<'a> for ContentInfo<T> {
 
             Ok(Self(content))
         })
-    }
-}
-
-impl<T: ContentType> EncodeValue for ContentInfo<T> {
-    fn value_len(&self) -> Result<Length> {
-        let content_type_len = T::CONTENT_TYPE.encoded_len()?;
-        let content_len = ContextSpecificRef {
-            tag_number: TagNumber::N0,
-            tag_mode: TagMode::Explicit,
-            value: &self.0,
-        }
-        .encoded_len()?;
-        content_type_len + content_len
-    }
-
-    fn encode_value(&self, writer: &mut impl Writer) -> Result<()> {
-        T::CONTENT_TYPE.encode(writer)?;
-        ContextSpecificRef {
-            tag_number: TagNumber::N0,
-            tag_mode: TagMode::Explicit,
-            value: &self.0,
-        }
-        .encode(writer)
     }
 }
 

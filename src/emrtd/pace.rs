@@ -1,6 +1,6 @@
 use {
-    super::Icao9303,
-    crate::{asn1::public_key::EcParameters, icao9303::secure_messaging::aes::kdf_128},
+    super::Emrtd,
+    crate::{asn1::public_key::EcParameters, emrtd::secure_messaging::aes::kdf_128},
     anyhow::Result,
     rand::{CryptoRng, RngCore},
     sha1::{Digest, Sha1},
@@ -8,7 +8,7 @@ use {
 
 pub const KDF_PACE: u32 = 3;
 
-impl Icao9303 {
+impl Emrtd {
     pub fn pace(&mut self, rng: impl CryptoRng + RngCore, mrz: &str) -> Result<()> {
         // Derive symmetric key K_pi
         let k = k_from_mrz(mrz);

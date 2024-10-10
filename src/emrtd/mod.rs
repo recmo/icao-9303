@@ -1,3 +1,5 @@
+//! Library for interacting with an ICAO 9303 compliant eMRTD.
+
 mod bac;
 mod chip_authentication;
 mod files;
@@ -16,7 +18,7 @@ use {
     thiserror::Error,
 };
 
-pub struct Icao9303 {
+pub struct Emrtd {
     /// NFC Reader connected to card.
     nfc: Box<dyn NfcReader>,
 
@@ -80,7 +82,7 @@ impl From<StatusWord> for Error {
     }
 }
 
-impl Icao9303 {
+impl Emrtd {
     pub fn new(nfc: Box<dyn NfcReader>) -> Self {
         Self {
             nfc,

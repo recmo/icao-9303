@@ -2,7 +2,7 @@ mod file_id;
 
 pub use self::file_id::{DedicatedId, FileId};
 use {
-    super::{Error, Icao9303, Result},
+    super::{Emrtd, Error, Result},
     crate::{
         asn1::{EfCardAccess, EfDg14, EfSod},
         ensure_err,
@@ -30,7 +30,7 @@ impl HasFileId for EfDg14 {
     const FILE_ID: FileId = FileId::Dg14;
 }
 
-impl Icao9303 {
+impl Emrtd {
     pub fn read_cached<T: HasFileId + for<'a> Decode<'a>>(&mut self) -> Result<T> {
         let der = self
             .read_file_cached(T::FILE_ID)?

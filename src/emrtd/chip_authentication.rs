@@ -1,11 +1,10 @@
 use {
-    super::Icao9303,
+    super::Emrtd,
     crate::{
         asn1::{
-            security_info::{KeyAgreement, SecurityInfo},
+            security_info::{KeyAgreement, SecurityInfo, SymmetricCipher},
             EfDg14,
         },
-        icao9303::secure_messaging::SymmetricCipher,
         tr03111::{ecka, EllipticCurve},
     },
     anyhow::{anyhow, ensure, Result},
@@ -13,7 +12,7 @@ use {
     rand::{CryptoRng, RngCore},
 };
 
-impl Icao9303 {
+impl Emrtd {
     pub fn chip_authenticate(&mut self, rng: impl CryptoRng + RngCore) -> Result<()> {
         // TODO: Some passports only have ChipAuthenticationPublicKeyInfo but no ChipAuthenticationInfo. In this case, CA_(EC)DH_3DES_CBC_CBC should be assumed.
 

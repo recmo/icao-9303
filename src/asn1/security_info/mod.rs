@@ -78,6 +78,14 @@ pub enum KeyAgreement {
     Ecdh,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SymmetricCipher {
+    Tdes,
+    Aes128,
+    Aes192,
+    Aes256,
+}
+
 pub type ActiveAuthenticationInfo = AnySecurityInfo; // TODO
 pub type TerminalAuthenticationInfo = AnySecurityInfo; // TODO
 
@@ -249,5 +257,16 @@ impl<'a> DecodeValue<'a> for KeyAgreement {
         Oid::decode_value(reader, header).and_then(|oid| {
             Self::try_from(oid).map_err(|err| Error::new(err.kind(), reader.position()))
         })
+    }
+}
+
+impl Display for SymmetricCipher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tdes => write!(f, "3DES-CBC-CBC"),
+            Self::Aes128 => write!(f, "AES-CBC-CMAC-128"),
+            Self::Aes192 => write!(f, "AES-CBC-CMAC-192"),
+            Self::Aes256 => write!(f, "AES-CBC-CMAC-256"),
+        }
     }
 }

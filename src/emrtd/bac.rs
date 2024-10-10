@@ -2,14 +2,14 @@ use {
     super::{
         pad,
         secure_messaging::{tdes::TDesCipher, Cipher, Encrypted},
-        seed_from_mrz, Icao9303,
+        seed_from_mrz, Emrtd,
     },
     anyhow::{anyhow, ensure, Result},
     rand::Rng,
     std::array,
 };
 
-impl Icao9303 {
+impl Emrtd {
     /// Get random nonce for authentication.
     ///
     /// See ICAO 9303-11 section 4.3.4.1.

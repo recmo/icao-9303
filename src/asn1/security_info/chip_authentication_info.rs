@@ -1,9 +1,6 @@
 use {
-    super::KeyAgreement,
-    crate::{
-        asn1::public_key::SubjectPublicKeyInfo, ensure_err,
-        icao9303::secure_messaging::SymmetricCipher, tr03111::EllipticCurvePoint,
-    },
+    super::{super::public_key::SubjectPublicKeyInfo, KeyAgreement, SymmetricCipher},
+    crate::ensure_err,
     der::{
         asn1::ObjectIdentifier as Oid, DecodeValue, EncodeValue, Error, ErrorKind, FixedTag,
         Header, Length, Reader, Result, Sequence, Tag, Writer,
@@ -40,21 +37,6 @@ impl ChipAuthenticationInfo {
     pub fn ensure_valid(self) {
         assert!(self.protocol.cipher.is_some());
         assert_eq!(self.version, 1);
-    }
-}
-
-impl ChipAuthenticationPublicKeyInfo {
-    pub fn public_key(&self) -> Result<EllipticCurvePoint> {
-        ensure_err!(
-            self.protocol == KeyAgreement::Ecdh,
-            Error::new(
-                ErrorKind::OidUnknown {
-                    oid: self.protocol.into()
-                },
-                Length::ZERO
-            )
-        );
-        todo!()
     }
 }
 

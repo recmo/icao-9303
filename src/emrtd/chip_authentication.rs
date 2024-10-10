@@ -2,13 +2,13 @@ use {
     super::Emrtd,
     crate::{
         asn1::{
-            security_info::{KeyAgreement, SecurityInfo, SymmetricCipher},
+            security_info::{KeyAgreement, SymmetricCipher},
             EfDg14,
         },
         crypto::{ecka, EllipticCurve},
         emrtd::secure_messaging::construct_secure_messaging,
     },
-    anyhow::{anyhow, ensure, Result},
+    anyhow::{ensure, Result},
     der::asn1::ObjectIdentifier as Oid,
     rand::{CryptoRng, RngCore},
 };

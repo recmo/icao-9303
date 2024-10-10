@@ -7,7 +7,7 @@ use {
     glob::{glob, Pattern},
     hex_literal::hex,
     icao_9303_nfc::{
-        asn1::{public_key, EfCardAccess, EfDg14, EfSod},
+        asn1::{EfCardAccess, EfDg14, EfSod},
         crypto::{ecka, EllipticCurvePoint},
         emrtd::secure_messaging::{construct_secure_messaging, SecureMessaging},
     },

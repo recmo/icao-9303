@@ -3,8 +3,9 @@
 use {
     anyhow::{anyhow, Context, Result},
     icao_9303_nfc::{
+        asn1::EfSod,
+        emrtd::{Emrtd, Error, FileId},
         ensure_err,
-        icao9303::{asn1::EfSod, Error, FileId, Icao9303},
         iso7816::StatusWord,
         nfc::connect_reader,
     },
@@ -24,7 +25,7 @@ fn main() -> Result<()> {
     ensure_err!(card.is_some(), anyhow!("No card found."));
     dbg!(&card);
 
-    let mut card = Icao9303::new(nfc);
+    let mut card = Emrtd::new(nfc);
 
     // println!("=== Basic Access Control.");
     let mrz = env::var("MRZ")?;

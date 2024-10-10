@@ -185,8 +185,10 @@ pub fn kdf_256(secret: &[u8], counter: u32) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use {
-        super::*,
-        crate::icao9303::secure_messaging::{Encrypted, SecureMessaging},
+        super::{
+            super::{Encrypted, SecureMessaging},
+            *,
+        },
         hex_literal::hex,
     };
 

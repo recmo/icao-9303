@@ -1,8 +1,8 @@
 use {
     der::{
-        asn1::{BitString, Int, Null, ObjectIdentifier as Oid, OctetString},
-        Any, Choice, Decode, DecodeValue, Encode, EncodeValue, Length, Reader, Result, Sequence,
-        ValueOrd, Writer,
+        asn1::{Int, ObjectIdentifier as Oid},
+        Any, Decode, DecodeValue, Encode, EncodeValue, Length, Reader, Result, Sequence, ValueOrd,
+        Writer,
     },
     std::cmp::Ordering,
 };

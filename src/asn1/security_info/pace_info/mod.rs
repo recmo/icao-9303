@@ -1,7 +1,7 @@
 mod pace_protocol;
 
 pub use pace_protocol::PaceProtocol;
-use {super::KeyAgreement, crate::asn1::AnyAlgorithmIdentifier, der::Sequence};
+use {crate::asn1::AnyAlgorithmIdentifier, der::Sequence};
 
 /// See ICAO-9303-11 9.2.1
 #[derive(Clone, PartialEq, Eq, Debug, Sequence)]

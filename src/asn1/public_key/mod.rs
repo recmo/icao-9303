@@ -4,7 +4,7 @@ mod pubkey_algorithm_identifier;
 pub use self::{field_id::FieldId, pubkey_algorithm_identifier::PubkeyAlgorithmIdentifier};
 use der::{
     asn1::{BitString, Int, Null, ObjectIdentifier as Oid, OctetString},
-    Any, Choice, Sequence, ValueOrd,
+    Choice, Sequence, ValueOrd,
 };
 
 // See TR-03111

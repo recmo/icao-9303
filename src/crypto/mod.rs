@@ -12,7 +12,7 @@ pub use self::{
 };
 use {
     anyhow::{ensure, Result},
-    der::asn1::{Int, IntRef, OctetString},
+    der::asn1::{Int, OctetString},
 };
 
 fn parse_uint(int: &Int) -> Result<Uint> {

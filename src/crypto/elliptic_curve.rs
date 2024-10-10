@@ -5,7 +5,7 @@ use {
         PrimeField,
     },
     crate::asn1::public_key::{
-        ECAlgoParameters, EcParameters, FieldId, PubkeyAlgorithmIdentifier, SubjectPublicKeyInfo,
+        ECAlgoParameters, EcParameters, PubkeyAlgorithmIdentifier, SubjectPublicKeyInfo,
     },
     anyhow::{bail, ensure, Result},
     std::{

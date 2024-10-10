@@ -1,12 +1,12 @@
 use {
     super::parse_uint,
-    crate::{asn1::public_key::FieldId, ensure_err},
-    anyhow::{bail, ensure, Result},
+    crate::asn1::public_key::FieldId,
+    anyhow::{bail, Result},
     rand::{CryptoRng, Rng, RngCore},
     ruint::aliases::U64,
     std::{
         fmt::{self, Debug, Formatter},
-        ops::{Add, AddAssign, Deref, Div, Mul, MulAssign, Neg, Sub},
+        ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub},
     },
 };
 

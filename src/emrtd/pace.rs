@@ -41,11 +41,7 @@ pub fn standardized_parameters(id: u64) -> Option<EcParameters> {
 
 #[cfg(test)]
 mod tests {
-    use {
-        super::*,
-        crate::icao9303::secure_messaging::aes::{kdf_128, kdf_256},
-        hex_literal::hex,
-    };
+    use {super::*, crate::emrtd::secure_messaging::aes::kdf_128, hex_literal::hex};
 
     // ICAO 9303-11, Appendix G
     #[test]
@@ -56,7 +52,7 @@ mod tests {
         let k_pi = kdf_128(&k[..], 3);
         assert_eq!(k_pi, hex!("89DED1B2 6624EC1E 634C1989 302849DD"));
 
-        let pace_info = PaceInfo::from_der(&hex!("3012060A 04007F00 07020204 02020201 0202010D"));
-        dbg!(pace_info);
+        // let pace_info = PaceInfo::from_der(&hex!("3012060A 04007F00 07020204 02020201 0202010D"));
+        // dbg!(pace_info);
     }
 }

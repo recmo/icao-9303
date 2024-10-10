@@ -90,7 +90,7 @@ fn set_parity_bits(key: &mut [u8]) {
 mod tests {
     use {
         super::{super::SecureMessaging, *},
-        crate::icao9303::{pad, secure_messaging::Encrypted, seed_from_mrz},
+        crate::emrtd::{pad, secure_messaging::Encrypted, seed_from_mrz},
         hex_literal::hex,
     };
 

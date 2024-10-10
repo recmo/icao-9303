@@ -72,6 +72,7 @@ fn main() -> Result<()> {
     let args: Args = argh::from_env();
     for entry in glob(args.documents.as_str())? {
         let path = entry?;
+        println!("{:?}", path);
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let document: Document = serde_json::from_reader(reader)?;

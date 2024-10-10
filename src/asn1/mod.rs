@@ -32,6 +32,7 @@ use {
         asn1::{ObjectIdentifier as Oid, OctetString, PrintableString},
         Any, Decode, Error, ErrorKind, Length, Result, Sequence, Tag, ValueOrd,
     },
+    security_info::{ChipAuthenticationProtocol, KeyAgreement, SymmetricCipher},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
@@ -93,10 +94,30 @@ impl EfDg14 {
         &self,
     ) -> Option<(&ChipAuthenticationInfo, &ChipAuthenticationPublicKeyInfo)> {
         // For now, we take the first ChipAuthentication and ChipAuthenticationPublicKey.
-        let ca = self.0.iter().find_map(|si| match si {
-            SecurityInfo::ChipAuthentication(ca) => Some(ca),
-            _ => None,
-        })?;
+        let ca = self
+            .0
+            .iter()
+            .find_map(|si| match si {
+                SecurityInfo::ChipAuthentication(ca) => Some(ca),
+                _ => None,
+            })
+            .unwrap_or(
+                // Some passports only have ChipAuthenticationPublicKey. In this case we assume that
+                // the Cipher is the 3DES-CBC-CBC.
+                &ChipAuthenticationInfo {
+                    protocol: ChipAuthenticationProtocol {
+                        key_agreement: KeyAgreement::Ecdh, // TODO: From pubkey
+                        cipher: Some(SymmetricCipher::Tdes),
+                    },
+                    version: 1,
+                    key_id: None,
+                },
+            );
+        // Do some verification checks
+        if ca.protocol.cipher.is_none() || ca.version != 1 {
+            // TODO: Error message
+            return None;
+        }
         // Find the corresponding ChipAuthenticationPublicKey based on key id (could both be None)
         let capk = self.0.iter().find_map(|si| match si {
             SecurityInfo::ChipAuthenticationPublicKey(capk) if capk.key_id == ca.key_id => {

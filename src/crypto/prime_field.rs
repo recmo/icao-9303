@@ -1,38 +1,61 @@
 use {
+    super::parse_uint,
+    crate::{asn1::public_key::FieldId, ensure_err},
+    anyhow::{bail, ensure, Result},
     rand::{CryptoRng, Rng, RngCore},
-    ruint::aliases::{U320, U64},
+    ruint::aliases::U64,
     std::{
         fmt::{self, Debug, Formatter},
-        ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub},
+        ops::{Add, AddAssign, Deref, Div, Mul, MulAssign, Neg, Sub},
     },
 };
 
+// The largest prime field we support is 576 bits.
+// This covers all the named curves, including secp521r1.
+pub type Uint = ruint::Uint<576, 9>;
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct PrimeField {
-    modulus: U320,
+    modulus: Uint,
 
     // Precomputed values for Montgomery multiplication.
-    montgomery_r: U320,  // R = 2^64*LIMBS mod modulus
-    montgomery_r2: U320, // R^2, or R in Montgomery form
-    montgomery_r3: U320, // R^3, or R^2 in Montgomery form
+    montgomery_r: Uint,  // R = 2^64*LIMBS mod modulus
+    montgomery_r2: Uint, // R^2, or R in Montgomery form
+    montgomery_r3: Uint, // R^3, or R^2 in Montgomery form
     mod_inv: u64,        // -1 / modulus mod 2^64
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PrimeFieldElement<'a> {
     field: &'a PrimeField,
-    value: U320,
+    value: Uint,
 }
 
+// TODO: Configurable reference to field.
+// #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+// pub struct PrimeFieldElement<F: Deref<PrimeField>> {
+//     field: F,
+//     value: U320,
+// }
+
 impl PrimeField {
-    pub fn from_modulus(modulus: U320) -> Self {
-        assert_ne!(modulus, U320::ZERO);
+    pub fn from_field_id(field_id: &FieldId) -> Result<Self> {
+        let modulus = match field_id {
+            FieldId::PrimeField { modulus } => modulus,
+            _ => bail!("Field ID is not a prime field"),
+        };
+        let modulus = parse_uint(modulus)?;
+        Ok(Self::from_modulus(modulus))
+    }
+
+    pub fn from_modulus(modulus: Uint) -> Self {
+        assert_ne!(modulus, Uint::ZERO);
         let mod_inv = U64::wrapping_from(modulus)
             .inv_ring()
             .unwrap()
             .wrapping_neg()
             .to();
-        let montgomery_r = U320::from(2).pow_mod(U320::from(U320::BITS), modulus);
+        let montgomery_r = Uint::from(2).pow_mod(Uint::from(Uint::BITS), modulus);
         let montgomery_r2 = montgomery_r.mul_mod(montgomery_r, modulus);
         let montgomery_r3 = montgomery_r2.mul_mod(montgomery_r, modulus);
         Self {
@@ -44,7 +67,7 @@ impl PrimeField {
         }
     }
 
-    pub fn modulus(&self) -> U320 {
+    pub fn modulus(&self) -> Uint {
         self.modulus
     }
 
@@ -55,7 +78,7 @@ impl PrimeField {
     pub fn zero(&self) -> PrimeFieldElement {
         PrimeFieldElement {
             field: self,
-            value: U320::ZERO,
+            value: Uint::ZERO,
         }
     }
 
@@ -68,11 +91,11 @@ impl PrimeField {
 
     #[inline]
     pub fn el_from_u64(&self, value: u64) -> PrimeFieldElement {
-        self.el_from_uint(U320::from(value))
+        self.el_from_uint(Uint::from(value))
     }
 
     #[inline]
-    pub fn el_from_uint(&self, value: U320) -> PrimeFieldElement {
+    pub fn el_from_uint(&self, value: Uint) -> PrimeFieldElement {
         assert!(value < self.modulus);
         // Convert to Montgomery form by multiplying with R.
         PrimeFieldElement {
@@ -82,7 +105,7 @@ impl PrimeField {
     }
 
     #[inline]
-    pub fn el_from_monty(&self, value: U320) -> PrimeFieldElement {
+    pub fn el_from_monty(&self, value: Uint) -> PrimeFieldElement {
         assert!(value < self.modulus);
         PrimeFieldElement { field: self, value }
     }
@@ -90,12 +113,12 @@ impl PrimeField {
     /// TR-03111 section 4.1.1 Algorithm 1
     pub fn random_nonzero(&self, mut rng: impl CryptoRng + RngCore) -> PrimeFieldElement {
         loop {
-            let mut value = rng.gen::<U320>();
+            let mut value = rng.gen::<Uint>();
             // Zero out the high bits.
-            for b in self.modulus().bit_len()..U320::BITS {
+            for b in self.modulus().bit_len()..Uint::BITS {
                 value.set_bit(b, false);
             }
-            if value != U320::ZERO && value < self.modulus {
+            if value != Uint::ZERO && value < self.modulus {
                 return self.el_from_monty(value);
             }
         }
@@ -109,10 +132,13 @@ impl PrimeField {
     /// allow it.
     ///
     /// The matching encoding procedure, however, does specify an exact length.
-    pub fn os2fe(&self, os: &[u8]) -> PrimeFieldElement {
-        if os.len() != self.modulus.byte_len() {
-            eprintln!("Warning: OS2FE input length does not match modulus length")
-        }
+    pub fn os2fe<T: AsRef<[u8]>>(&self, os: T) -> PrimeFieldElement {
+        let os = os.as_ref();
+        // ensure!(
+        //     os.len() != self.modulus.byte_len(),
+        //     "OS2FE input length does not match modulus length"
+        // );
+        // Do modular reduction per TR-03111.
         let mut result = self.zero();
         let base = self.el_from_u64(256);
         for byte in os {
@@ -124,7 +150,7 @@ impl PrimeField {
 
     /// Montogomery multiplication
     #[inline]
-    fn mont_mul(&self, a: U320, b: U320) -> U320 {
+    fn mont_mul(&self, a: Uint, b: Uint) -> Uint {
         a.mul_redc(b, self.modulus, self.mod_inv)
     }
 }
@@ -135,12 +161,12 @@ impl PrimeFieldElement<'_> {
     }
 
     #[inline]
-    pub fn to_uint(self) -> U320 {
-        self.field.mont_mul(self.value, U320::from(1))
+    pub fn to_uint(self) -> Uint {
+        self.field.mont_mul(self.value, Uint::from(1))
     }
 
     #[inline]
-    pub fn as_uint_monty(self) -> U320 {
+    pub fn as_uint_monty(self) -> Uint {
         self.value
     }
 
@@ -185,7 +211,7 @@ macro_rules! forward_fmt {
         $(
             impl $type for PrimeFieldElement<'_> {
                 fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-                    <U320 as $type>::fmt(&self.to_uint(), f)
+                    <Uint as $type>::fmt(&self.to_uint(), f)
                 }
             }
         )+

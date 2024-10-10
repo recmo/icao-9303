@@ -1,11 +1,16 @@
 use {
-    anyhow::Result,
+    anyhow::{anyhow, Result},
     argh::FromArgs,
     base64::{engine::general_purpose::STANDARD as BASE64, Engine as _},
     cms::cert::CertificateChoices,
     der::{Decode, Encode},
     glob::{glob, Pattern},
-    icao_9303_nfc::asn1::{EfCardAccess, EfDg14, EfSod},
+    hex_literal::hex,
+    icao_9303_nfc::{
+        asn1::{public_key, EfCardAccess, EfDg14, EfSod},
+        crypto::{ecka, EllipticCurvePoint},
+        emrtd::secure_messaging::{construct_secure_messaging, SecureMessaging},
+    },
     serde::{Deserialize, Deserializer},
     std::{fmt::Debug, fs::File, io::BufReader},
 };
@@ -123,11 +128,42 @@ fn main() -> Result<()> {
         // Print DG14 supported protocols
         if let Some(dg14) = document.dg14 {
             for entry in dg14.0.iter() {
-                println!(" - DG14: {}, {:?}", entry.protocol_name(), entry);
+                println!(" - DG14: {}", entry.protocol_name());
             }
             if let Some((ca, capk)) = dg14.chip_authentication() {
-                println!(" - DG14: CA: {:?}, CAPK: {:?}", ca, capk);
+                println!(" - CA: {}", ca.protocol);
                 assert_eq!(ca.version, 1);
+
+                // Construct elliptic curve and public key point.
+                let (curve, public_key) = EllipticCurvePoint::from_pubkey(&capk.public_key)?;
+                let public_key = curve.pt_from_monty(public_key)?;
+                println!("   - Field: {:x}", curve.base_field().modulus());
+                println!("   - Generator: {:x}", curve.generator());
+                println!("   - Card Public Key: {:x}", public_key);
+
+                // Generate keypair
+                let mut rng = rand::thread_rng();
+                let private_key = curve.scalar_field().random_nonzero(&mut rng);
+                let public_key = private_key * curve.generator();
+                println!("   - Private key: {:x}", private_key);
+                println!("   - Public key: {:x}", public_key);
+
+                // Compute shared secret
+                let (shared_point, shared_secret) = ecka(private_key, public_key)?;
+                println!("   - Secret point: {:x}", shared_point);
+                println!("   - Shared secret: {}", hex::encode(&shared_secret));
+
+                // Construct secure messaging cipher and test messages
+                const SELECT_MASTER_FILE: &'static [u8] = &hex!("00A4 000C 0 23F00");
+                let cipher = ca
+                    .protocol
+                    .cipher
+                    .ok_or_else(|| anyhow!("No symmetric cipher"))?;
+                for i in 0..3 {
+                    let mut sm = construct_secure_messaging(cipher, &shared_secret, 2 * i);
+                    let msg = sm.enc_apdu(SELECT_MASTER_FILE)?;
+                    println!("   - Challenge {}: {}", i, hex::encode(msg));
+                }
             }
         }
     }

@@ -5,7 +5,8 @@ use {
             security_info::{KeyAgreement, SecurityInfo, SymmetricCipher},
             EfDg14,
         },
-        tr03111::{ecka, EllipticCurve},
+        crypto::{ecka, EllipticCurve},
+        emrtd::secure_messaging::construct_secure_messaging,
     },
     anyhow::{anyhow, ensure, Result},
     der::asn1::ObjectIdentifier as Oid,
@@ -67,7 +68,7 @@ impl Emrtd {
 
         // Keys should now have been changed.
         let cipher = SymmetricCipher::Aes256;
-        self.set_secure_messaging(cipher.construct(&z));
+        self.set_secure_messaging(construct_secure_messaging(cipher, &z, 0));
 
         Ok(())
     }

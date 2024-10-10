@@ -14,7 +14,6 @@ use {
         ensure_err,
         iso7816::{parse_apdu, StatusWord},
     },
-    std::fmt::{self, Display, Formatter},
 };
 
 pub const KDF_ENC: u32 = 1;
@@ -34,6 +33,7 @@ pub trait Cipher {
 }
 
 /// Secure Messaging protocol that passes APDUs and responses as-is.
+#[derive(Debug, Default)]
 pub struct PlainText;
 
 pub struct Encrypted<C: Cipher> {
@@ -41,20 +41,16 @@ pub struct Encrypted<C: Cipher> {
     ssc: u64,
 }
 
-impl SymmetricCipher {
-    pub fn construct(&self, seed: &[u8]) -> Box<dyn SecureMessaging> {
-        match self {
-            Self::Tdes => TDesCipher::from_seed(seed).into(),
-            Self::Aes128 => Aes128Cipher::from_seed(seed).into(),
-            Self::Aes192 => Aes192Cipher::from_seed(seed).into(),
-            Self::Aes256 => Aes256Cipher::from_seed(seed).into(),
-        }
-    }
-}
-
-impl PlainText {
-    pub fn new() -> Self {
-        Self
+pub fn construct_secure_messaging(
+    cipher: SymmetricCipher,
+    seed: &[u8],
+    ssc: u64,
+) -> Box<dyn SecureMessaging> {
+    match cipher {
+        SymmetricCipher::Tdes => Box::new(Encrypted::new(TDesCipher::from_seed(seed), ssc)),
+        SymmetricCipher::Aes128 => Box::new(Encrypted::new(Aes128Cipher::from_seed(seed), ssc)),
+        SymmetricCipher::Aes192 => Box::new(Encrypted::new(Aes192Cipher::from_seed(seed), ssc)),
+        SymmetricCipher::Aes256 => Box::new(Encrypted::new(Aes256Cipher::from_seed(seed), ssc)),
     }
 }
 

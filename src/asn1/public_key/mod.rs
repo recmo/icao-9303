@@ -1,6 +1,7 @@
+mod field_id;
 mod pubkey_algorithm_identifier;
 
-pub use self::pubkey_algorithm_identifier::PubkeyAlgorithmIdentifier;
+pub use self::{field_id::FieldId, pubkey_algorithm_identifier::PubkeyAlgorithmIdentifier};
 use der::{
     asn1::{BitString, Int, Null, ObjectIdentifier as Oid, OctetString},
     Any, Choice, Sequence, ValueOrd,
@@ -11,7 +12,6 @@ use der::{
 // public key 2
 // elliptic curve 1
 pub const ID_EC_PUBLIC_KEY: Oid = Oid::new_unwrap("1.2.840.10045.2.1");
-pub const ID_PRIME_FIELD: Oid = Oid::new_unwrap("1.2.840.10045.1.1");
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
 pub struct SubjectPublicKeyInfo {
@@ -42,12 +42,6 @@ pub struct EcParameters {
     pub base: ECPoint,
     pub order: Int,
     pub cofactor: Option<Int>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
-pub struct FieldId {
-    pub field_type: Oid,
-    pub parameters: Any,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]

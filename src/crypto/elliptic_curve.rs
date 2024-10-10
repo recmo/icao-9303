@@ -1,9 +1,13 @@
 use {
-    super::{parse_uint, parse_uint_ref, prime_field::PrimeFieldElement, PrimeField},
-    crate::asn1::public_key::{EcParameters, ID_PRIME_FIELD},
+    super::{
+        parse_uint,
+        prime_field::{PrimeFieldElement, Uint},
+        PrimeField,
+    },
+    crate::asn1::public_key::{
+        ECAlgoParameters, EcParameters, FieldId, PubkeyAlgorithmIdentifier, SubjectPublicKeyInfo,
+    },
     anyhow::{bail, ensure, Result},
-    der::asn1::IntRef,
-    ruint::aliases::U320,
     std::{
         fmt::{self, Debug, Formatter},
         ops::{Add, AddAssign, Mul, MulAssign, Neg},
@@ -17,10 +21,10 @@ pub struct EllipticCurve {
     // Curve parameters in Montgomery form.
     // Ideally we would store as PrimeFieldElement, but that would require a reference
     // to the field which confuses the borrow checker.
-    a_monty: U320,
-    b_monty: U320,
-    cofactor: U320,
-    generator_monty: (U320, U320),
+    a_monty: Uint,
+    b_monty: Uint,
+    cofactor: Uint,
+    generator_monty: (Uint, Uint),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -35,7 +39,18 @@ enum Coordinates<'a> {
     Affine(PrimeFieldElement<'a>, PrimeFieldElement<'a>),
 }
 
+pub type EcMonty = Option<(Uint, Uint)>;
+
 impl EllipticCurve {
+    pub fn from_algorithm(algo: &PubkeyAlgorithmIdentifier) -> Result<Self> {
+        match algo {
+            PubkeyAlgorithmIdentifier::Ec(ECAlgoParameters::EcParameters(params)) => {
+                Self::from_parameters(params)
+            }
+            _ => bail!("Unsupported algorithm for elliptic curve"),
+        }
+    }
+
     // TODO: ISO 7816 format (see TR-03111 section 5.1.2)
     pub fn from_parameters(params: &EcParameters) -> Result<Self> {
         ensure!(params.version == 1);
@@ -44,28 +59,28 @@ impl EllipticCurve {
         // The alternatives would be binary fields and other extension fields.
         // The are some binary field elliptic curves, but they are considered deprecated.
         // I am not aware of any extension field curves in use, other than for ZK-friendliness.
-        ensure!(params.field_id.field_type == ID_PRIME_FIELD);
+        // ensure!(params.field_id.field_type == ID_PRIME_FIELD);
 
-        // For a prime field the parameter is the prime modulus encoded as DER Integer.
-        let modulus: IntRef = params.field_id.parameters.decode_as()?;
-        let modulus = parse_uint_ref(modulus)?;
-        // ensure!(is_prime(&modulus));
-        let base_field = PrimeField::from_modulus(modulus);
+        // Construct the base and scalar fields.
+        let base_field = PrimeField::from_field_id(&params.field_id)?;
+        let scalar_field = PrimeField::from_modulus(parse_uint(&params.order)?);
 
-        let order = parse_uint(&params.order)?;
-        // ensure!(is_prime(&order));
-        ensure!(order != modulus);
-        let scalar_field = PrimeField::from_modulus(order);
+        // Ensure they are different fields.
+        ensure!(
+            base_field != scalar_field,
+            "Base and scalar fields must be different"
+        );
 
+        // Read the optional cofactor, default to 1.
         let cofactor = (params.cofactor)
             .as_ref()
             .map(parse_uint)
             .transpose()?
-            .unwrap_or(U320::from(1));
+            .unwrap_or(Uint::from(1));
 
         // Read curve parameters (TR-03111 section 2.3.1)
-        let a = base_field.os2fe(params.curve.a.as_bytes());
-        let b = base_field.os2fe(params.curve.b.as_bytes());
+        let a = base_field.os2fe(&params.curve.a);
+        let b = base_field.os2fe(&params.curve.b);
 
         // Check non-singular requirement 4a^3 + 27b^2 != 0
         ensure!(
@@ -79,7 +94,7 @@ impl EllipticCurve {
             a_monty: a.as_uint_monty(),
             b_monty: b.as_uint_monty(),
             cofactor,
-            generator_monty: (U320::ZERO, U320::ZERO),
+            generator_monty: (Uint::ZERO, Uint::ZERO),
         };
         let generator = curve.pt_from_bytes(params.base.as_bytes())?;
         curve.generator_monty = generator.as_monty().unwrap();
@@ -94,7 +109,7 @@ impl EllipticCurve {
         &self.scalar_field
     }
 
-    pub fn cofactor(&self) -> U320 {
+    pub fn cofactor(&self) -> Uint {
         self.cofactor
     }
 
@@ -107,7 +122,7 @@ impl EllipticCurve {
     }
 
     pub fn generator(&self) -> EllipticCurvePoint {
-        self.pt_from_monty(self.generator_monty).unwrap()
+        self.pt_from_monty(Some(self.generator_monty)).unwrap()
     }
 
     pub fn pt_infinity(&self) -> EllipticCurvePoint {
@@ -130,11 +145,14 @@ impl EllipticCurve {
         })
     }
 
-    pub fn pt_from_monty(&self, (x, y): (U320, U320)) -> Result<EllipticCurvePoint> {
-        self.pt_from_affine((
-            self.base_field.el_from_monty(x),
-            self.base_field.el_from_monty(y),
-        ))
+    pub fn pt_from_monty(&self, monty: EcMonty) -> Result<EllipticCurvePoint> {
+        match monty {
+            Some((x, y)) => self.pt_from_affine((
+                self.base_field.el_from_monty(x),
+                self.base_field.el_from_monty(y),
+            )),
+            None => Ok(self.pt_infinity()),
+        }
     }
 
     /// TR-03111 section 3.2
@@ -165,7 +183,7 @@ impl EllipticCurve {
             y.pow(2) == x.pow(3) + self.a() * x + self.b(),
             "Point not on curve."
         );
-        if self.cofactor != U320::from(1) {
+        if self.cofactor != Uint::from(1) {
             // TODO: Check cofactor. self.order * point == infty
             bail!("Cofactor check unimplemented")
         }
@@ -174,6 +192,13 @@ impl EllipticCurve {
 }
 
 impl EllipticCurvePoint<'_> {
+    pub fn from_pubkey(pubkey: &SubjectPublicKeyInfo) -> Result<(EllipticCurve, EcMonty)> {
+        let curve = EllipticCurve::from_algorithm(&pubkey.algorithm)?;
+        let point = curve.pt_from_bytes(&pubkey.subject_public_key.raw_bytes())?;
+        let monty = point.as_monty();
+        Ok((curve, monty))
+    }
+
     pub fn curve(&self) -> &EllipticCurve {
         self.curve
     }
@@ -193,7 +218,7 @@ impl EllipticCurvePoint<'_> {
         }
     }
 
-    pub fn as_monty(&self) -> Option<(U320, U320)> {
+    pub fn as_monty(&self) -> EcMonty {
         match self.coordinates {
             Coordinates::Infinity => None,
             Coordinates::Affine(x, y) => Some((x.as_uint_monty(), y.as_uint_monty())),
@@ -213,6 +238,25 @@ impl EllipticCurvePoint<'_> {
             Coordinates::Affine(_, y) => Some(y),
         }
     }
+}
+
+/// Elliptic Curve Key Agreement
+/// See TR-03111 section 4.3.1
+pub fn ecka<'a>(
+    private_key: PrimeFieldElement,
+    public_key: EllipticCurvePoint<'a>,
+) -> Result<(EllipticCurvePoint<'a>, Vec<u8>)> {
+    let curve = public_key.curve();
+    ensure!(private_key.field() == curve.scalar_field());
+
+    let h = curve.cofactor();
+    let l = curve.scalar_field().el_from_uint(h).inv().unwrap();
+    let q = h * public_key;
+    let s_ab = (private_key * l) * q;
+    ensure!(s_ab != curve.pt_infinity());
+    let z_ab = s_ab.x().unwrap().fe2os();
+
+    Ok((s_ab, z_ab))
 }
 
 macro_rules! forward_fmt {
@@ -305,14 +349,14 @@ impl Neg for EllipticCurvePoint<'_> {
     }
 }
 
-impl Mul<U320> for EllipticCurvePoint<'_> {
+impl Mul<Uint> for EllipticCurvePoint<'_> {
     type Output = Self;
 
     /// TODO: Constant time algorithm.
-    fn mul(self, mut scalar: U320) -> Self::Output {
+    fn mul(self, mut scalar: Uint) -> Self::Output {
         let mut result = self.curve.pt_infinity();
         let mut base = self;
-        while scalar != U320::ZERO {
+        while scalar != Uint::ZERO {
             if scalar.bit(0) {
                 result += base;
             }
@@ -323,7 +367,7 @@ impl Mul<U320> for EllipticCurvePoint<'_> {
     }
 }
 
-impl<'a> Mul<EllipticCurvePoint<'a>> for U320 {
+impl<'a> Mul<EllipticCurvePoint<'a>> for Uint {
     type Output = EllipticCurvePoint<'a>;
 
     fn mul(self, point: EllipticCurvePoint<'a>) -> Self::Output {
@@ -331,8 +375,8 @@ impl<'a> Mul<EllipticCurvePoint<'a>> for U320 {
     }
 }
 
-impl MulAssign<U320> for EllipticCurvePoint<'_> {
-    fn mul_assign(&mut self, scalar: U320) {
+impl MulAssign<Uint> for EllipticCurvePoint<'_> {
+    fn mul_assign(&mut self, scalar: Uint) {
         *self = *self * scalar;
     }
 }

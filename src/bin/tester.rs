@@ -135,13 +135,12 @@ fn main() -> Result<()> {
                 println!(" - CA: {}", ca.protocol);
                 assert_eq!(ca.version, 1);
 
-                // Construct elliptic curve and public key point.
-                let (curve, document_public_key) =
-                    EllipticCurvePoint::from_pubkey(&capk.public_key)?;
-                let document_public_key = curve.pt_from_monty(public_key)?;
+                // Construct elliptic curve and document public key point.
+                let (curve, doc_public_key) = EllipticCurvePoint::from_pubkey(&capk.public_key)?;
+                let doc_public_key = curve.pt_from_monty(doc_public_key)?;
                 println!("   - Field: {:x}", curve.base_field().modulus());
                 println!("   - Generator: {:x}", curve.generator());
-                println!("   - Card Public Key: {:x}", public_key);
+                println!("   - Card Public Key: {:x}", doc_public_key);
 
                 // Generate keypair
                 let mut rng = rand::thread_rng();
@@ -151,12 +150,12 @@ fn main() -> Result<()> {
                 println!("   - Public key: {:x}", public_key);
 
                 // Compute shared secret
-                let (shared_point, shared_secret) = ecka(private_key, document_public_key)?;
+                let (shared_point, shared_secret) = ecka(private_key, doc_public_key)?;
                 println!("   - Secret point: {:x}", shared_point);
                 println!("   - Shared secret: {}", hex::encode(&shared_secret));
 
                 // Construct secure messaging cipher and test messages
-                const SELECT_MASTER_FILE: &'static [u8] = &hex!("00A4 000C 02 3F00");
+                const SELECT_MASTER_FILE: &[u8] = &hex!("00A4 000C 02 3F00");
                 let cipher = ca
                     .protocol
                     .cipher

@@ -1,5 +1,11 @@
 [package]
-name = "icao-9303-nfc"
+name = "icao-9303"
+description = "ICAO 9303 electronic machine readable travel document (eMRTD) standard implementation."
+readme = "README.md"
+documentation = "https://docs.rs/icao-9303"
+repository = "https://github.com/recmo/icao-9303"
+license = "MIT"
+license-file = "LICENSE"
 version = "0.1.0"
 edition = "2021"
 

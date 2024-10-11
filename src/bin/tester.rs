@@ -155,7 +155,7 @@ fn main() -> Result<()> {
                 println!("   - Shared secret: {}", hex::encode(&shared_secret));
 
                 // Construct secure messaging cipher and test messages
-                const SELECT_MASTER_FILE: &'static [u8] = &hex!("00A4 000C 0 23F00");
+                const SELECT_MASTER_FILE: &'static [u8] = &hex!("00A4 000C 02 3F00");
                 let cipher = ca
                     .protocol
                     .cipher

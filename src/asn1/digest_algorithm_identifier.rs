@@ -106,6 +106,26 @@ impl DigestAlgorithmIdentifier {
     }
 }
 
+impl TryFrom<&str> for DigestAlgorithmIdentifier {
+    type Error = Error;
+
+    fn try_from(s: &str) -> Result<Self> {
+        match s.to_uppercase().as_str() {
+            "SHA1" => Ok(Self::Sha1(Parameters::Absent)),
+            "SHA2-256" => Ok(Self::Sha256(Parameters::Absent)),
+            "SHA2-384" => Ok(Self::Sha384(Parameters::Absent)),
+            "SHA2-512" => Ok(Self::Sha512(Parameters::Absent)),
+            "SHA2-224" => Ok(Self::Sha224(Parameters::Absent)),
+            "SHA2-512-224" => Ok(Self::Sha512_224(Parameters::Absent)),
+            "SHA2-512-256" => Ok(Self::Sha512_256(Parameters::Absent)),
+            _ => Err(Error::new(
+                ErrorKind::Value { tag: Tag::Null },
+                Length::ZERO,
+            )),
+        }
+    }
+}
+
 fn hash<D: Digest>(data: &[u8]) -> Vec<u8> {
     let mut hasher = D::new();
     hasher.update(data);

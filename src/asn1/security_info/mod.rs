@@ -16,6 +16,7 @@ use {
         Reader, Result, Sequence, Tag, ValueOrd, Writer,
     },
     pace_info::PaceDomainParameterInfo,
+    serde::{Deserialize, Serialize},
     std::{
         cmp::Ordering,
         fmt::{self, Display, Formatter},
@@ -78,7 +79,8 @@ pub enum KeyAgreement {
     Ecdh,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
 pub enum SymmetricCipher {
     Tdes,
     Aes128,

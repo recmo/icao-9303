@@ -2,7 +2,7 @@
 
 use {
     anyhow::{anyhow, Context, Result},
-    icao_9303_nfc::{
+    icao_9303::{
         asn1::EfSod,
         emrtd::{Emrtd, Error, FileId},
         ensure_err,

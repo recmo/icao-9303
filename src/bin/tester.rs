@@ -6,7 +6,7 @@ use {
     der::{Decode, Encode},
     glob::{glob, Pattern},
     hex_literal::hex,
-    icao_9303_nfc::{
+    icao_9303::{
         asn1::{EfCardAccess, EfDg14, EfSod},
         crypto::{ecka, EllipticCurvePoint},
         emrtd::secure_messaging::{construct_secure_messaging, SecureMessaging},

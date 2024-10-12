@@ -5,7 +5,6 @@ readme = "README.md"
 documentation = "https://docs.rs/icao-9303"
 repository = "https://github.com/recmo/icao-9303"
 license = "MIT"
-license-file = "LICENSE"
 version = "0.1.0"
 edition = "2021"
 
@@ -44,6 +43,3 @@ base64 = "0.22.1"
 [features]
 default = ["proxmark3"]
 proxmark3 = ["rusb"]
-
-[patch.crates-io]
-cms = { path = "../../RustCrypto/formats/cms" }

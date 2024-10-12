@@ -9,7 +9,7 @@ use {
     icao_9303::{
         asn1::{EfCardAccess, EfDg14, EfSod},
         crypto::{ecka, EllipticCurvePoint},
-        emrtd::secure_messaging::{construct_secure_messaging, SecureMessaging},
+        emrtd::secure_messaging::construct_secure_messaging,
     },
     serde::{Deserialize, Deserializer},
     std::{fmt::Debug, fs::File, io::BufReader},

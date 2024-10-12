@@ -1303,7 +1303,3 @@ dependencies = [
  "quote",
  "syn 2.0.77",
 ]
-
-[[patch.unused]]
-name = "cms"
-version = "0.3.0-pre.0"

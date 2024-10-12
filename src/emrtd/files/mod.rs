@@ -178,7 +178,7 @@ fn sniff_len(bytes: &[u8]) -> Result<Option<usize>> {
             if let ErrorKind::Incomplete { .. } = e.kind() {
                 Ok(None)
             } else {
-                return Err(e.into());
+                Err(e.into())
             }
         }
     }

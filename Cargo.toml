@@ -45,5 +45,5 @@ default = ["proxmark3"]
 proxmark3 = ["rusb"]
 
 [patch.crates-io]
-# ruint = { git = "https://github.com/recmo/uint.git", branch = "recmo/der" }
-ruint = { path = "../uint" }
+ruint = { git = "https://github.com/recmo/uint", branch = "recmo/der" }
+# ruint = { path = "../uint" }

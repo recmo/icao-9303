@@ -9,10 +9,10 @@ use {
 pub const KDF_PACE: u32 = 3;
 
 impl Emrtd {
-    pub fn pace(&mut self, rng: impl CryptoRng + RngCore, mrz: &str) -> Result<()> {
+    pub fn pace(&mut self, _rng: impl CryptoRng + RngCore, mrz: &str) -> Result<()> {
         // Derive symmetric key K_pi
         let k = k_from_mrz(mrz);
-        let k_pi = kdf_128(&k[..], KDF_PACE);
+        let _k_pi = kdf_128(&k[..], KDF_PACE);
 
         // Send MSE:Set AT.
 

@@ -6,6 +6,7 @@ use {
         Tag, Tagged, Writer,
     },
     sha1::Digest,
+    std::fmt::{self, Display, Formatter},
 };
 
 // Hash algorithms
@@ -103,6 +104,22 @@ impl DigestAlgorithmIdentifier {
         let mut bytes = Vec::new();
         object.encode_to_vec(&mut bytes).unwrap();
         self.hash_bytes(&bytes)
+    }
+}
+
+impl Display for DigestAlgorithmIdentifier {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let name = match self {
+            Self::Sha1(_) => "SHA1",
+            Self::Sha256(_) => "SHA2-256",
+            Self::Sha384(_) => "SHA2-384",
+            Self::Sha512(_) => "SHA2-512",
+            Self::Sha224(_) => "SHA2-224",
+            Self::Sha512_224(_) => "SHA2-512-224",
+            Self::Sha512_256(_) => "SHA2-512-256",
+            Self::Unknown(_) => "UNKNOWN",
+        };
+        write!(f, "{name}")
     }
 }
 

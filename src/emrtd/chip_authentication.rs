@@ -1,11 +1,7 @@
 use {
     super::Emrtd,
     crate::{
-        asn1::{
-            security_info::{KeyAgreement, SymmetricCipher},
-            EfDg14,
-        },
-        crypto::{ecka, EllipticCurve},
+        asn1::{security_info::SymmetricCipher, EfDg14},
         emrtd::secure_messaging::construct_secure_messaging,
     },
     anyhow::{ensure, Result},
@@ -14,7 +10,7 @@ use {
 };
 
 impl Emrtd {
-    pub fn chip_authenticate(&mut self, rng: impl CryptoRng + RngCore) -> Result<()> {
+    pub fn chip_authenticate(&mut self, mut rng: impl CryptoRng + RngCore) -> Result<()> {
         // TODO: Some passports only have ChipAuthenticationPublicKeyInfo but no ChipAuthenticationInfo. In this case, CA_(EC)DH_3DES_CBC_CBC should be assumed.
 
         // Read EF.DG14
@@ -25,33 +21,13 @@ impl Emrtd {
         let (ca, pk) = ef_dg14.chip_authentication().unwrap();
         println!("Using algorithm: {}", ca.protocol);
 
-        // Make sure protocols matches the key.
-        ensure!(ca.protocol.key_agreement == pk.protocol);
+        let (algo, card_public_key) = pk.public_key.to_algorithm_public_key()?;
 
-        // TODO: Support DH
-        ensure!(pk.protocol == KeyAgreement::Ecdh);
+        // Generate keypair
+        let (private_key, public_key) = algo.generate_key_pair(&mut rng);
 
-        let ec_params = todo!();
-        // match pk.public_key.algorithm.parameters {
-        //     ECAlgoParameters::EcParameters(ec_params) => ec_params,
-        //     _ => return Err(anyhow!("Expected ECParameters")),
-        // };
-
-        let curve = EllipticCurve::from_parameters(&ec_params)?;
-        dbg!(curve);
-
-        let card_public_key = pk.public_key.subject_public_key.as_bytes().unwrap();
-        let card_public_key = curve.pt_from_bytes(card_public_key)?;
-        dbg!(card_public_key);
-
-        // Generate ephemeral keypair
-        let private_key = curve.scalar_field().random_nonzero(rng);
-        let public_key = private_key * curve.generator();
-        dbg!(private_key);
-        dbg!(public_key);
-
-        let (s, z) = ecka(private_key, card_public_key)?;
-        dbg!(&s, hex::encode(&z));
+        // Compute shared secret
+        let shared_secret = algo.key_agreement(&private_key, &card_public_key)?;
 
         // Initiate Chip Authentication
         // ICAO-9303-11 section 6.2
@@ -63,12 +39,12 @@ impl Emrtd {
         self.mset_at(ca.protocol.into(), pk.key_id)?;
 
         // Send the public key using general authenticate
-        let data = self.general_authenticate(&public_key.to_bytes())?;
+        let data = self.general_authenticate(public_key.as_ref())?;
         println!("==> General Authenticate: {}", hex::encode(data));
 
         // Keys should now have been changed.
         let cipher = SymmetricCipher::Aes256;
-        self.set_secure_messaging(construct_secure_messaging(cipher, &z, 0));
+        self.set_secure_messaging(construct_secure_messaging(cipher, &shared_secret, 0));
 
         Ok(())
     }

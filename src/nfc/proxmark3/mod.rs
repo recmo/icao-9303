@@ -222,7 +222,7 @@ impl Proxmark3 {
     fn hf14b_apdu(&mut self, data_in: &[u8], data_out: &mut Vec<u8>) -> Result<bool> {
         // TODO: Support send chaining.
         self.hf14b(0x0004, data_in)?;
-        let (status, cmd, mut response) = self.receive_response()?;
+        let (status, cmd, response) = self.receive_response()?;
         ensure!(status == Status::Success as i16);
         ensure!(cmd == Command::Hf14bReader as u16);
         ensure!(response.len() >= 5);

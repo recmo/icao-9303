@@ -1,4 +1,4 @@
-use {der::asn1::ObjectIdentifier as Oid, hex_literal::hex};
+use der::asn1::ObjectIdentifier as Oid;
 
 // https://www.rfc-editor.org/rfc/rfc5114
 // https://www.secg.org/sec2-v2.pdf

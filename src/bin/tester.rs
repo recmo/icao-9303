@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use {
     anyhow::{anyhow, Result},
     argh::FromArgs,
@@ -8,8 +10,7 @@ use {
     hex_literal::hex,
     icao_9303::{
         asn1::{EfCardAccess, EfDg14, EfSod},
-        crypto::{ecka, EllipticCurvePoint},
-        emrtd::secure_messaging::{construct_secure_messaging, SecureMessaging},
+        emrtd::secure_messaging::construct_secure_messaging,
     },
     serde::{Deserialize, Deserializer},
     std::{fmt::Debug, fs::File, io::BufReader},
@@ -101,6 +102,9 @@ fn main() -> Result<()> {
             }
         }
 
+        // Check signatures
+        // TODO: document.sod.verify_signature()?;
+
         // Get LDS Security Object and it's hash algorithm.
         let lso = document.sod.lds_security_object()?;
         let hasher = &lso.hash_algorithm;
@@ -136,22 +140,17 @@ fn main() -> Result<()> {
                 assert_eq!(ca.version, 1);
 
                 // Construct elliptic curve and document public key point.
-                let (curve, doc_public_key) = EllipticCurvePoint::from_pubkey(&capk.public_key)?;
-                let doc_public_key = curve.pt_from_monty(doc_public_key)?;
-                println!("   - Field: {:x}", curve.base_field().modulus());
-                println!("   - Generator: {:x}", curve.generator());
-                println!("   - Card Public Key: {:x}", doc_public_key);
+                let (algo, doc_public_key) = capk.public_key.to_algorithm_public_key()?;
+                println!("   - Aglo: {}", algo);
+                println!("   - Card Public Key: {}", hex::encode(&doc_public_key));
 
                 // Generate keypair
                 let mut rng = rand::thread_rng();
-                let private_key = curve.scalar_field().random_nonzero(&mut rng);
-                let public_key = private_key * curve.generator();
-                println!("   - Private key: {:x}", private_key);
-                println!("   - Public key: {:x}", public_key);
+                let (private_key, public_key) = algo.generate_key_pair(&mut rng);
+                println!("   - Public key: {}", hex::encode(public_key));
 
                 // Compute shared secret
-                let (shared_point, shared_secret) = ecka(private_key, doc_public_key)?;
-                println!("   - Secret point: {:x}", shared_point);
+                let shared_secret = algo.key_agreement(&private_key, &doc_public_key)?;
                 println!("   - Shared secret: {}", hex::encode(&shared_secret));
 
                 // Construct secure messaging cipher and test messages

@@ -280,26 +280,26 @@ mod tests {
         eprintln!("COR: {}", hex::encode(&papdu));
         assert_eq!(result, papdu);
 
-        let crapdu = hex!("99 02 90 00 8E 08 EB FF 08 D3 B2 0A 04 14");
-        let rapdu = hex!("90 00");
+        let _crapdu = hex!("99 02 90 00 8E 08 EB FF 08 D3 B2 0A 04 14");
+        let _rapdu = hex!("90 00");
         // let result = sm.dec_response(&crapdu).unwrap();
         // assert_eq!(result, rapdu);
 
         // 8.2
 
         // 8.3
-        let apdu = hex!("00 22 81 B6 0F 83 0D 44 45 54 45 53 54 44 56 44 45 30 31 39");
-        let capdu = hex!(
+        let _apdu = hex!("00 22 81 B6 0F 83 0D 44 45 54 45 53 54 44 56 44 45 30 31 39");
+        let _capdu = hex!(
             "
             0C 22 81 B6 1D 87 11 01 6A B8 1B 7D 96 08 24 93
             AF 87 D2 C4 2F B2 8C 85 8E 08 DE CB F7 59 13 BC
             1A 76 00"
         );
-        let crapdu = hex!("99 02 90 00 8E 08 C5 29 A8 ED 4B DC B9 96");
-        let rapdu = hex!("90 00");
+        let _crapdu = hex!("99 02 90 00 8E 08 C5 29 A8 ED 4B DC B9 96");
+        let _rapdu = hex!("90 00");
 
         // 8.4
-        let apdu = hex!(
+        let _apdu = hex!(
             "
             00 2A 00 BE 00 01 6A 7F 4E 81 E2 5F 29 01 00 42
             0D 44 45 54 45 53 54 44 56 44 45 30 31 39 7F 49
@@ -327,7 +327,7 @@ mod tests {
             2D
         "
         );
-        let capdu = hex!(
+        let _capdu = hex!(
             "
             0C 2A 00 BE 00 01 7F 87 82 01 71 01 16 52 C1 F3
             1A 4C E5 A7 E6 A5 B7 9D D4 18 E7 27 DA 11 6A FA
@@ -355,8 +355,8 @@ mod tests {
             2E A2 21 BB 30 96 AF 66 86 28 C4 81 8E 08 EF 7E
             FA 58 DA 6E D9 DD 00 00"
         );
-        let cracpdu = hex!("99 02 90 00 8E 08 B9 87 F8 19 0C DE 76 4D ");
-        let rapdu = hex!("90 00");
+        let _cracpdu = hex!("99 02 90 00 8E 08 B9 87 F8 19 0C DE 76 4D ");
+        let _rapdu = hex!("90 00");
 
         // 8.5
 

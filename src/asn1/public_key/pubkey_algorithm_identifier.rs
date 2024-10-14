@@ -1,5 +1,5 @@
 use {
-    super::{super::AnyAlgorithmIdentifier, ECAlgoParameters},
+    super::{super::AnyAlgorithmIdentifier, DhAlgoParameters, ECAlgoParameters},
     der::{
         asn1::ObjectIdentifier as Oid, Any, Decode, DecodeValue, Encode, EncodeValue, Length,
         Reader, Result, Sequence, ValueOrd, Writer,
@@ -13,9 +13,15 @@ use {
 // elliptic curve 1
 pub const ID_EC: Oid = Oid::new_unwrap("1.2.840.10045.2.1");
 
+/// PKCS 3
+///
+/// https://www.teletrust.de/fileadmin/files/oid/oid_pkcs-3v1-4.pdf
+pub const ID_DH: Oid = Oid::new_unwrap("1.2.840.113549.1.3.1");
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum PubkeyAlgorithmIdentifier {
     Ec(ECAlgoParameters),
+    Dh(DhAlgoParameters),
     Unknown(AnyAlgorithmIdentifier),
 }
 
@@ -34,6 +40,7 @@ impl EncodeValue for PubkeyAlgorithmIdentifier {
     fn value_len(&self) -> Result<Length> {
         match self {
             Self::Ec(params) => ID_EC.encoded_len()? + params.encoded_len()?,
+            Self::Dh(params) => ID_DH.encoded_len()? + params.encoded_len()?,
             Self::Unknown(any) => any.value_len(),
         }
     }
@@ -42,6 +49,10 @@ impl EncodeValue for PubkeyAlgorithmIdentifier {
         match self {
             Self::Ec(params) => {
                 ID_EC.encode(writer)?;
+                params.encode(writer)
+            }
+            Self::Dh(params) => {
+                ID_DH.encode(writer)?;
                 params.encode(writer)
             }
             Self::Unknown(any) => any.encode(writer),
@@ -54,6 +65,7 @@ impl<'a> DecodeValue<'a> for PubkeyAlgorithmIdentifier {
         let oid = Oid::decode(reader)?;
         Ok(match oid {
             ID_EC => Self::Ec(ECAlgoParameters::decode(reader)?),
+            ID_DH => Self::Dh(DhAlgoParameters::decode(reader)?),
             _ => Self::Unknown(AnyAlgorithmIdentifier {
                 algorithm: oid,
                 parameters: Option::<Any>::decode(reader)?,

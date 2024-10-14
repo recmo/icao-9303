@@ -1,34 +1,30 @@
 use {
-    super::parse_uint,
     crate::asn1::public_key::FieldId,
     anyhow::{bail, Result},
     rand::{CryptoRng, Rng, RngCore},
-    ruint::aliases::U64,
+    ruint::{aliases::U64, Uint},
     std::{
         fmt::{self, Debug, Formatter},
         ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub},
     },
+    subtle::{Choice, ConditionallySelectable, ConstantTimeEq},
 };
 
-// The largest prime field we support is 576 bits.
-// This covers all the named curves, including secp521r1.
-pub type Uint = ruint::Uint<576, 9>;
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct PrimeField {
-    modulus: Uint,
+pub struct PrimeField<const BITS: usize, const LIMBS: usize> {
+    modulus: Uint<BITS, LIMBS>,
 
     // Precomputed values for Montgomery multiplication.
-    montgomery_r: Uint,  // R = 2^64*LIMBS mod modulus
-    montgomery_r2: Uint, // R^2, or R in Montgomery form
-    montgomery_r3: Uint, // R^3, or R^2 in Montgomery form
-    mod_inv: u64,        // -1 / modulus mod 2^64
+    montgomery_r: Uint<BITS, LIMBS>,  // R = 2^64*LIMBS mod modulus
+    montgomery_r2: Uint<BITS, LIMBS>, // R^2, or R in Montgomery form
+    montgomery_r3: Uint<BITS, LIMBS>, // R^3, or R^2 in Montgomery form
+    mod_inv: u64,                     // -1 / modulus mod 2^64
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PrimeFieldElement<'a> {
-    field: &'a PrimeField,
-    value: Uint,
+pub struct PrimeFieldElement<'a, const BITS: usize, const LIMBS: usize> {
+    field: &'a PrimeField<BITS, LIMBS>,
+    value: Uint<BITS, LIMBS>,
 }
 
 // TODO: Configurable reference to field.
@@ -38,24 +34,23 @@ pub struct PrimeFieldElement<'a> {
 //     value: U320,
 // }
 
-impl PrimeField {
+impl<const BITS: usize, const LIMBS: usize> PrimeField<BITS, LIMBS> {
     pub fn from_field_id(field_id: &FieldId) -> Result<Self> {
         let modulus = match field_id {
-            FieldId::PrimeField { modulus } => modulus,
+            FieldId::PrimeField { modulus } => modulus.try_into()?,
             _ => bail!("Field ID is not a prime field"),
         };
-        let modulus = parse_uint(modulus)?;
         Ok(Self::from_modulus(modulus))
     }
 
-    pub fn from_modulus(modulus: Uint) -> Self {
+    pub fn from_modulus(modulus: Uint<BITS, LIMBS>) -> Self {
         assert_ne!(modulus, Uint::ZERO);
         let mod_inv = U64::wrapping_from(modulus)
             .inv_ring()
             .unwrap()
             .wrapping_neg()
             .to();
-        let montgomery_r = Uint::from(2).pow_mod(Uint::from(Uint::BITS), modulus);
+        let montgomery_r = Uint::from(2).pow_mod(Uint::from(BITS), modulus);
         let montgomery_r2 = montgomery_r.mul_mod(montgomery_r, modulus);
         let montgomery_r3 = montgomery_r2.mul_mod(montgomery_r, modulus);
         Self {
@@ -67,7 +62,7 @@ impl PrimeField {
         }
     }
 
-    pub fn modulus(&self) -> Uint {
+    pub fn modulus(&self) -> Uint<BITS, LIMBS> {
         self.modulus
     }
 
@@ -75,14 +70,14 @@ impl PrimeField {
         self.modulus().byte_len()
     }
 
-    pub fn zero(&self) -> PrimeFieldElement {
+    pub fn zero(&self) -> PrimeFieldElement<BITS, LIMBS> {
         PrimeFieldElement {
             field: self,
             value: Uint::ZERO,
         }
     }
 
-    pub fn one(&self) -> PrimeFieldElement {
+    pub fn one(&self) -> PrimeFieldElement<BITS, LIMBS> {
         PrimeFieldElement {
             field: self,
             value: self.montgomery_r,
@@ -90,12 +85,12 @@ impl PrimeField {
     }
 
     #[inline]
-    pub fn el_from_u64(&self, value: u64) -> PrimeFieldElement {
+    pub fn el_from_u64(&self, value: u64) -> PrimeFieldElement<BITS, LIMBS> {
         self.el_from_uint(Uint::from(value))
     }
 
     #[inline]
-    pub fn el_from_uint(&self, value: Uint) -> PrimeFieldElement {
+    pub fn el_from_uint(&self, value: Uint<BITS, LIMBS>) -> PrimeFieldElement<BITS, LIMBS> {
         assert!(value < self.modulus);
         // Convert to Montgomery form by multiplying with R.
         PrimeFieldElement {
@@ -105,17 +100,20 @@ impl PrimeField {
     }
 
     #[inline]
-    pub fn el_from_monty(&self, value: Uint) -> PrimeFieldElement {
+    pub fn el_from_monty(&self, value: Uint<BITS, LIMBS>) -> PrimeFieldElement<BITS, LIMBS> {
         assert!(value < self.modulus);
         PrimeFieldElement { field: self, value }
     }
 
     /// TR-03111 section 4.1.1 Algorithm 1
-    pub fn random_nonzero(&self, mut rng: impl CryptoRng + RngCore) -> PrimeFieldElement {
+    pub fn random_nonzero(
+        &self,
+        mut rng: impl CryptoRng + RngCore,
+    ) -> PrimeFieldElement<BITS, LIMBS> {
         loop {
-            let mut value = rng.gen::<Uint>();
+            let mut value = rng.gen::<Uint<BITS, LIMBS>>();
             // Zero out the high bits.
-            for b in self.modulus().bit_len()..Uint::BITS {
+            for b in self.modulus().bit_len()..BITS {
                 value.set_bit(b, false);
             }
             if value != Uint::ZERO && value < self.modulus {
@@ -132,7 +130,7 @@ impl PrimeField {
     /// allow it.
     ///
     /// The matching encoding procedure, however, does specify an exact length.
-    pub fn os2fe<T: AsRef<[u8]>>(&self, os: T) -> PrimeFieldElement {
+    pub fn os2fe<T: AsRef<[u8]>>(&self, os: T) -> PrimeFieldElement<BITS, LIMBS> {
         let os = os.as_ref();
         // ensure!(
         //     os.len() != self.modulus.byte_len(),
@@ -150,23 +148,23 @@ impl PrimeField {
 
     /// Montogomery multiplication
     #[inline]
-    fn mont_mul(&self, a: Uint, b: Uint) -> Uint {
+    fn mont_mul(&self, a: Uint<BITS, LIMBS>, b: Uint<BITS, LIMBS>) -> Uint<BITS, LIMBS> {
         a.mul_redc(b, self.modulus, self.mod_inv)
     }
 }
 
-impl PrimeFieldElement<'_> {
-    pub fn field(&self) -> &PrimeField {
+impl<const BITS: usize, const LIMBS: usize> PrimeFieldElement<'_, BITS, LIMBS> {
+    pub fn field(&self) -> &PrimeField<BITS, LIMBS> {
         self.field
     }
 
     #[inline]
-    pub fn to_uint(self) -> Uint {
+    pub fn to_uint(self) -> Uint<BITS, LIMBS> {
         self.field.mont_mul(self.value, Uint::from(1))
     }
 
     #[inline]
-    pub fn as_uint_monty(self) -> Uint {
+    pub fn as_uint_monty(self) -> Uint<BITS, LIMBS> {
         self.value
     }
 
@@ -177,7 +175,7 @@ impl PrimeFieldElement<'_> {
         result.split_off(result.len() - self.field.byte_len())
     }
 
-    /// Exponentiation
+    /// Small exponentiation
     ///
     /// Run time may depend on the exponent.
     #[inline]
@@ -190,6 +188,19 @@ impl PrimeFieldElement<'_> {
             n if n % 2 == 0 => (self * self).pow(n / 2),
             n => self * self.pow(n - 1),
         }
+    }
+
+    /// Large constant-time exponentation.
+    #[inline]
+    pub fn pow_ct<const B: usize, const L: usize>(mut self, exponent: Uint<B, L>) -> Self {
+        let mut result = self.field.one();
+        // We use `bit_len` here as an optimization when B >> log_2 exponent.
+        // However, this does result in leaking the number of leading zeros.
+        for i in 0..exponent.bit_len() {
+            result.conditional_assign(&(result * self), exponent.bit_ct(i));
+            self *= self;
+        }
+        result
     }
 
     /// Inversion
@@ -209,9 +220,9 @@ impl PrimeFieldElement<'_> {
 macro_rules! forward_fmt {
     ($($type:ty),+) => {
         $(
-            impl $type for PrimeFieldElement<'_> {
+            impl<const BITS: usize, const LIMBS: usize> $type for PrimeFieldElement<'_, BITS, LIMBS> {
                 fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-                    <Uint as $type>::fmt(&self.to_uint(), f)
+                    <Uint<BITS, LIMBS> as $type>::fmt(&self.to_uint(), f)
                 }
             }
         )+
@@ -227,7 +238,7 @@ forward_fmt!(
     fmt::UpperHex
 );
 
-impl Add for PrimeFieldElement<'_> {
+impl<const BITS: usize, const LIMBS: usize> Add for PrimeFieldElement<'_, BITS, LIMBS> {
     type Output = Self;
 
     #[inline]
@@ -240,7 +251,7 @@ impl Add for PrimeFieldElement<'_> {
     }
 }
 
-impl Sub for PrimeFieldElement<'_> {
+impl<const BITS: usize, const LIMBS: usize> Sub for PrimeFieldElement<'_, BITS, LIMBS> {
     type Output = Self;
 
     #[inline]
@@ -250,7 +261,7 @@ impl Sub for PrimeFieldElement<'_> {
     }
 }
 
-impl Mul for PrimeFieldElement<'_> {
+impl<const BITS: usize, const LIMBS: usize> Mul for PrimeFieldElement<'_, BITS, LIMBS> {
     type Output = Self;
 
     #[inline]
@@ -263,7 +274,7 @@ impl Mul for PrimeFieldElement<'_> {
     }
 }
 
-impl Neg for PrimeFieldElement<'_> {
+impl<const BITS: usize, const LIMBS: usize> Neg for PrimeFieldElement<'_, BITS, LIMBS> {
     type Output = Self;
 
     #[inline]
@@ -275,7 +286,7 @@ impl Neg for PrimeFieldElement<'_> {
     }
 }
 
-impl Div for PrimeFieldElement<'_> {
+impl<const BITS: usize, const LIMBS: usize> Div for PrimeFieldElement<'_, BITS, LIMBS> {
     type Output = Option<Self>;
 
     /// Division
@@ -288,16 +299,35 @@ impl Div for PrimeFieldElement<'_> {
     }
 }
 
-impl AddAssign for PrimeFieldElement<'_> {
+impl<const BITS: usize, const LIMBS: usize> AddAssign for PrimeFieldElement<'_, BITS, LIMBS> {
     #[inline]
     fn add_assign(&mut self, other: Self) {
         *self = *self + other;
     }
 }
 
-impl MulAssign for PrimeFieldElement<'_> {
+impl<const BITS: usize, const LIMBS: usize> MulAssign for PrimeFieldElement<'_, BITS, LIMBS> {
     #[inline]
     fn mul_assign(&mut self, other: Self) {
         *self = *self * other;
+    }
+}
+
+impl<const BITS: usize, const LIMBS: usize> ConditionallySelectable
+    for PrimeFieldElement<'_, BITS, LIMBS>
+{
+    fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
+        assert_eq!(a.field, b.field);
+        Self {
+            field: a.field,
+            value: Uint::conditional_select(&a.value, &b.value, choice),
+        }
+    }
+}
+
+impl<const BITS: usize, const LIMBS: usize> ConstantTimeEq for PrimeFieldElement<'_, BITS, LIMBS> {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        assert_eq!(self.field, other.field);
+        self.value.ct_eq(&other.value)
     }
 }

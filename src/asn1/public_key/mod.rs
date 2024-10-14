@@ -19,6 +19,14 @@ pub struct SubjectPublicKeyInfo {
     pub subject_public_key: BitString,
 }
 
+/// Diffie-Hellman Mod-P Group Parameters.
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Sequence, ValueOrd)]
+pub struct DhAlgoParameters {
+    pub prime: Int,
+    pub base: Int,
+    pub private_value_length: Option<u64>,
+}
+
 /// Elliptic Curve Algorithm Parameters.
 ///
 /// **Note**: This deviates from RFC 5480 by allowing for explicit

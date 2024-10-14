@@ -1,18 +1,19 @@
 use {
-    super::{
-        parse_uint,
-        prime_field::{PrimeFieldElement, Uint},
-        PrimeField,
-    },
-    crate::asn1::public_key::{
-        ECAlgoParameters, EcParameters, PubkeyAlgorithmIdentifier, SubjectPublicKeyInfo,
-    },
-    anyhow::{bail, ensure, Result},
+    super::{KeyAgreementAlgorithm, PrivateKey, PublicKey},
+    crate::asn1::public_key::{EcParameters, SubjectPublicKeyInfo},
+    anyhow::{anyhow, bail, ensure, Result},
     std::{
-        fmt::{self, Debug, Formatter},
+        fmt::{self, Debug, Display, Formatter},
         ops::{Add, AddAssign, Mul, MulAssign, Neg},
     },
+    subtle::{Choice, ConditionallySelectable, ConstantTimeEq},
 };
+
+// The largest prime field we support is 576 bits.
+// This covers all the named curves, including secp521r1.
+pub type Uint = ruint::Uint<576, 9>;
+pub type PrimeField = crate::crypto::PrimeField<576, 9>;
+pub type PrimeFieldElement<'a> = crate::crypto::PrimeFieldElement<'a, 576, 9>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct EllipticCurve {
@@ -42,15 +43,6 @@ enum Coordinates<'a> {
 pub type EcMonty = Option<(Uint, Uint)>;
 
 impl EllipticCurve {
-    pub fn from_algorithm(algo: &PubkeyAlgorithmIdentifier) -> Result<Self> {
-        match algo {
-            PubkeyAlgorithmIdentifier::Ec(ECAlgoParameters::EcParameters(params)) => {
-                Self::from_parameters(params)
-            }
-            _ => bail!("Unsupported algorithm for elliptic curve"),
-        }
-    }
-
     // TODO: ISO 7816 format (see TR-03111 section 5.1.2)
     pub fn from_parameters(params: &EcParameters) -> Result<Self> {
         ensure!(params.version == 1);
@@ -63,7 +55,7 @@ impl EllipticCurve {
 
         // Construct the base and scalar fields.
         let base_field = PrimeField::from_field_id(&params.field_id)?;
-        let scalar_field = PrimeField::from_modulus(parse_uint(&params.order)?);
+        let scalar_field = PrimeField::from_modulus((&params.order).try_into()?);
 
         // Ensure they are different fields.
         ensure!(
@@ -74,7 +66,7 @@ impl EllipticCurve {
         // Read the optional cofactor, default to 1.
         let cofactor = (params.cofactor)
             .as_ref()
-            .map(parse_uint)
+            .map(Uint::try_from)
             .transpose()?
             .unwrap_or(Uint::from(1));
 
@@ -192,13 +184,6 @@ impl EllipticCurve {
 }
 
 impl EllipticCurvePoint<'_> {
-    pub fn from_pubkey(pubkey: &SubjectPublicKeyInfo) -> Result<(EllipticCurve, EcMonty)> {
-        let curve = EllipticCurve::from_algorithm(&pubkey.algorithm)?;
-        let point = curve.pt_from_bytes(&pubkey.subject_public_key.raw_bytes())?;
-        let monty = point.as_monty();
-        Ok((curve, monty))
-    }
-
     pub fn curve(&self) -> &EllipticCurve {
         self.curve
     }
@@ -259,18 +244,53 @@ pub fn ecka<'a>(
     Ok((s_ab, z_ab))
 }
 
+impl Display for EllipticCurve {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "ECDH-{}", self.scalar_field().modulus().bit_len())
+    }
+}
+
+impl KeyAgreementAlgorithm for EllipticCurve {
+    fn subject_public_key(&self, pubkey: &SubjectPublicKeyInfo) -> Result<PublicKey> {
+        let public = self.pt_from_bytes(pubkey.subject_public_key.raw_bytes())?;
+        Ok(PublicKey(public.to_bytes()))
+    }
+
+    fn generate_key_pair(&self, rng: &mut dyn super::CryptoCoreRng) -> (PrivateKey, PublicKey) {
+        let private = self.scalar_field().random_nonzero(rng);
+        let public = self.generator() * private;
+        (
+            PrivateKey(Box::new(private.as_uint_monty())),
+            PublicKey(public.to_bytes()),
+        )
+    }
+
+    fn key_agreement(&self, private: &PrivateKey, public: &PublicKey) -> Result<Vec<u8>> {
+        let private = self.scalar_field().el_from_monty(
+            *private
+                .0
+                .as_ref()
+                .downcast_ref::<Uint>()
+                .ok_or(anyhow!("Invalid private key"))?,
+        );
+        let public = self.pt_from_bytes(&public.0)?;
+        let (_, shared) = ecka(private, public)?;
+        Ok(shared)
+    }
+}
+
 macro_rules! forward_fmt {
     ($($type:ty),+) => {
         $(
-            impl $type for EllipticCurvePoint<'_> {
+            impl<> $type for EllipticCurvePoint<'_> {
                 fn fmt(&self, f: &mut Formatter) -> fmt::Result {
                     match self.coordinates {
                         Coordinates::Infinity => write!(f, "Infinity"),
                         Coordinates::Affine(x, y) => {
                             write!(f, "(")?;
-                            <PrimeFieldElement as $type>::fmt(&x, f)?;
+                            <PrimeFieldElement<'_> as $type>::fmt(&x, f)?;
                             write!(f, ", ")?;
-                            <PrimeFieldElement as $type>::fmt(&y, f)?;
+                            <PrimeFieldElement<'_> as $type>::fmt(&y, f)?;
                             write!(f, ")")
                         }
                     }
@@ -352,16 +372,11 @@ impl Neg for EllipticCurvePoint<'_> {
 impl Mul<Uint> for EllipticCurvePoint<'_> {
     type Output = Self;
 
-    /// TODO: Constant time algorithm.
-    fn mul(self, mut scalar: Uint) -> Self::Output {
+    fn mul(mut self, scalar: Uint) -> Self::Output {
         let mut result = self.curve.pt_infinity();
-        let mut base = self;
-        while scalar != Uint::ZERO {
-            if scalar.bit(0) {
-                result += base;
-            }
-            base += base;
-            scalar >>= 1;
+        for i in 0..Uint::BITS {
+            result.conditional_assign(&(result + self), scalar.bit_ct(i));
+            self += self;
         }
         result
     }
@@ -381,7 +396,7 @@ impl MulAssign<Uint> for EllipticCurvePoint<'_> {
     }
 }
 
-impl<'a, 'b> Mul<PrimeFieldElement<'a>> for EllipticCurvePoint<'b> {
+impl<'a> Mul<PrimeFieldElement<'a>> for EllipticCurvePoint<'_> {
     type Output = Self;
 
     fn mul(self, scalar: PrimeFieldElement<'a>) -> Self::Output {
@@ -389,16 +404,67 @@ impl<'a, 'b> Mul<PrimeFieldElement<'a>> for EllipticCurvePoint<'b> {
     }
 }
 
-impl<'a, 'b> Mul<EllipticCurvePoint<'b>> for PrimeFieldElement<'a> {
-    type Output = EllipticCurvePoint<'b>;
+impl<'a> Mul<EllipticCurvePoint<'a>> for PrimeFieldElement<'_> {
+    type Output = EllipticCurvePoint<'a>;
 
-    fn mul(self, point: EllipticCurvePoint<'b>) -> Self::Output {
+    fn mul(self, point: EllipticCurvePoint<'a>) -> Self::Output {
         point * self
     }
 }
 
-impl<'a, 'b> MulAssign<PrimeFieldElement<'a>> for EllipticCurvePoint<'b> {
+impl<'a> MulAssign<PrimeFieldElement<'a>> for EllipticCurvePoint<'_> {
     fn mul_assign(&mut self, scalar: PrimeFieldElement<'a>) {
         *self = *self * scalar;
+    }
+}
+
+/// Conditionally select an Elliptic Curve Point
+///
+/// Note: Points must have identical representation (Infinity / Affine) for constant-time.
+///
+/// # Panics
+///
+/// Panics if the points are not on the same curve
+impl<'a> ConditionallySelectable for EllipticCurvePoint<'a> {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        assert_eq!(a.curve, b.curve);
+        use Coordinates::*;
+        let coordinates = match (&a.coordinates, &b.coordinates) {
+            (Infinity, Infinity) => Infinity,
+            (Affine(ax, ay), Affine(bx, by)) => Affine(
+                PrimeFieldElement::<'a>::conditional_select(ax, bx, choice),
+                PrimeFieldElement::<'a>::conditional_select(ay, by, choice),
+            ),
+            (a, b) => {
+                if bool::from(choice) {
+                    *b
+                } else {
+                    *a
+                }
+            }
+        };
+        Self {
+            curve: a.curve,
+            coordinates,
+        }
+    }
+}
+
+/// Constant time coordinate equality check.
+///
+/// Warning: Only constant time in coordinates, not in Infinity / Affine cases distinction.
+///
+/// # Panics
+///
+/// Panics if the points are not on the same curve
+impl ConstantTimeEq for EllipticCurvePoint<'_> {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        use Coordinates::*;
+        assert_eq!(self.curve, other.curve);
+        match (&self.coordinates, &other.coordinates) {
+            (Infinity, Infinity) => Choice::from(1),
+            (Affine(ax, ay), Affine(bx, by)) => ax.ct_eq(bx) & ay.ct_eq(by),
+            _ => Choice::from(0),
+        }
     }
 }

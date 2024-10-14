@@ -606,7 +606,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
- "spki",
+ "subtle",
  "thiserror",
 ]
 
@@ -936,15 +936,15 @@ dependencies = [
 [[package]]
 name = "ruint"
 version = "1.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c3cc4c2511671f327125da14133d0c5c5d137f006a1017a16f557bc85b16286"
 dependencies = [
  "alloy-rlp",
  "ark-ff 0.3.0",
  "ark-ff 0.4.2",
  "bytes",
+ "der",
  "fastrlp",
  "num-bigint",
+ "num-integer",
  "num-traits",
  "parity-scale-codec",
  "primitive-types",
@@ -953,6 +953,7 @@ dependencies = [
  "rlp",
  "ruint-macro",
  "serde",
+ "subtle",
  "valuable",
  "zeroize",
 ]
@@ -960,8 +961,6 @@ dependencies = [
 [[package]]
 name = "ruint-macro"
 version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48fd7bd8a6377e15ad9d42a8ec25371b94ddc67abe7c8b9127bec79bebaaae18"
 
 [[package]]
 name = "rusb"
@@ -1303,7 +1302,3 @@ dependencies = [
  "quote",
  "syn 2.0.77",
 ]
-
-[[patch.unused]]
-name = "cms"
-version = "0.3.0-pre.0"

@@ -5,7 +5,6 @@ readme = "README.md"
 documentation = "https://docs.rs/icao-9303"
 repository = "https://github.com/recmo/icao-9303"
 license = "MIT"
-license-file = "LICENSE"
 version = "0.1.0"
 edition = "2021"
 
@@ -27,11 +26,11 @@ hex = "0.4.3"
 hex-literal = "0.4.1"
 num_enum = "0.7.3"
 rand = "0.8.5"
-ruint = { version = "1.12.3", features = ["rand"] }
+ruint = { version = "1.12.3", features = ["rand", "subtle", "der"] }
 rusb = { version = "0.9.4", optional = true }
 sha1 = "0.10.6"
 sha2 = "0.10.8"
-spki = "0.7.3"
+subtle = "2.6.1"
 thiserror = "1.0.64"
 
 [target.'cfg(not(lib))'.dependencies]
@@ -46,4 +45,5 @@ default = ["proxmark3"]
 proxmark3 = ["rusb"]
 
 [patch.crates-io]
-cms = { path = "../../RustCrypto/formats/cms" }
+# ruint = { git = "https://github.com/recmo/uint.git", branch = "recmo/der" }
+ruint = { path = "../uint" }

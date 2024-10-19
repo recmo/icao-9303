@@ -598,6 +598,7 @@ dependencies = [
  "glob",
  "hex",
  "hex-literal",
+ "num-traits",
  "num_enum",
  "rand",
  "ruint",
@@ -936,6 +937,7 @@ dependencies = [
 [[package]]
 name = "ruint"
 version = "1.12.3"
+source = "git+https://github.com/recmo/uint?branch=recmo%2Fder#c63cc29269e68d03d1f7036d2b15d1bd1d540026"
 dependencies = [
  "alloy-rlp",
  "ark-ff 0.3.0",
@@ -961,6 +963,7 @@ dependencies = [
 [[package]]
 name = "ruint-macro"
 version = "1.2.1"
+source = "git+https://github.com/recmo/uint?branch=recmo%2Fder#c63cc29269e68d03d1f7036d2b15d1bd1d540026"
 
 [[package]]
 name = "rusb"

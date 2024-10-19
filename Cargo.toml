@@ -24,9 +24,10 @@ der = { version = "0.7.9", features = ["oid", "derive", "std"] }
 des = "0.8.1"
 hex = "0.4.3"
 hex-literal = "0.4.1"
+num-traits = "0.2.19"
 num_enum = "0.7.3"
 rand = "0.8.5"
-ruint = { version = "1.12.3", features = ["rand", "subtle", "der"] }
+ruint = { version = "1.12.3", features = ["rand", "subtle", "der", "num-traits"] }
 rusb = { version = "0.9.4", optional = true }
 sha1 = "0.10.6"
 sha2 = "0.10.8"

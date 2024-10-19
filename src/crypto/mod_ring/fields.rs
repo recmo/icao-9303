@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::crypto::mod_ring::RingRefExt;
 use {
     super::{ModRing, ModRingElement, RingRef},
     ruint::{aliases::U256, uint},
@@ -5,7 +7,7 @@ use {
 };
 
 // Marker type for Bn254 scalar field elements.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bn254Field;
 
 impl RingRef for Bn254Field {
@@ -31,16 +33,6 @@ impl Deref for Bn254Field {
 
 pub type Bn254Element = ModRingElement<Bn254Field>;
 
-impl Bn254Field {
-    fn zero() -> Bn254Element {
-        Bn254Element::zero(Bn254Field)
-    }
-
-    fn one() -> Bn254Element {
-        Bn254Element::one(Bn254Field)
-    }
-}
-
 #[test]
 fn test_bn254_field() {
     assert_eq!(size_of::<Bn254Element>(), 32);
@@ -50,10 +42,8 @@ fn test_bn254_field() {
     ));
     assert_eq!(&*Bn254Field, &field);
 
-    let one = ModRingElement::one(&field);
+    let one = Bn254Field.one();
     let two = one + one;
-}
 
-fn test() {
-    Bn254Field::zero();
+    assert_eq!(two, Bn254Field.from(U256::from(2)));
 }

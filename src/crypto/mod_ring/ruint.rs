@@ -1,17 +1,15 @@
 //! [`ruint`] backend for [`ModRing`]
 
 use {
-    super::{ModRing, UintExp, UintMont},
+    super::{ModRing, UintMont},
     ruint::{aliases::U64, Uint},
-    subtle::Choice,
 };
 
 impl<const BITS: usize, const LIMBS: usize> UintMont for Uint<BITS, LIMBS> {
     fn parameters_from_modulus(modulus: Self) -> ModRing<Self> {
-        assert!(!modulus.is_zero());
         let mod_inv = U64::wrapping_from(modulus)
             .inv_ring()
-            .unwrap() // Must be odd
+            .expect("Modulus not an odd positive integer.")
             .wrapping_neg()
             .to();
         let montgomery_r = Self::from(2).pow_mod(Self::from(BITS), modulus);
@@ -39,12 +37,9 @@ impl<const BITS: usize, const LIMBS: usize> UintMont for Uint<BITS, LIMBS> {
     }
 }
 
-impl<const BITS: usize, const LIMBS: usize> UintExp for Uint<BITS, LIMBS> {
-    fn bit_len(&self) -> usize {
-        Uint::bit_len(&self)
-    }
-
-    fn bit_ct(&self, index: usize) -> Choice {
-        Uint::bit_ct(&self, index)
-    }
+#[test]
+fn test_impl_uint_exp() {
+    use {super::UintExp, ruint::aliases::U256};
+    fn ok<T: UintExp>() {}
+    ok::<U256>();
 }

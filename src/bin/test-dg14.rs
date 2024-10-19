@@ -23,10 +23,13 @@ fn main() -> Result<()> {
         let path = entry?;
         println!("{:?}", path);
         let dg14 = std::fs::read(path)?;
+
+        let dg14 = hex!("6e2f312d3012060a04007f0007020204020402010202010f30170606678108010105020101060a04007f00070101040104");
+
         println!("{}", hex::encode(&dg14));
         let dg14 = EfDg14::from_der(&dg14)?;
         for entry in dg14.0.iter() {
-            println!(" - DG14: {}", entry.protocol_name());
+            println!(" - DG14: {} {:?}", entry.protocol_name(), entry);
         }
         if let Some((ca, capk)) = dg14.chip_authentication() {
             println!(" - CA: {}", ca.protocol);

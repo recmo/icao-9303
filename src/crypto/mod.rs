@@ -4,14 +4,13 @@
 
 mod diffie_hellman;
 mod elliptic_curve;
+pub mod mod_ring;
 mod named_curves;
-mod prime_field;
 mod signature;
 
 pub use self::{
     diffie_hellman::ModPGroup,
     elliptic_curve::{ecka, EllipticCurve, EllipticCurvePoint},
-    prime_field::{PrimeField, PrimeFieldElement},
 };
 use {
     crate::asn1::public_key::{ECAlgoParameters, PubkeyAlgorithmIdentifier, SubjectPublicKeyInfo},

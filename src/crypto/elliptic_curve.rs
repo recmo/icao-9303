@@ -1,7 +1,11 @@
 use {
-    super::{KeyAgreementAlgorithm, PrivateKey, PublicKey},
-    crate::asn1::public_key::{EcParameters, SubjectPublicKeyInfo},
+    super::{
+        mod_ring::{ModRing, ModRingElementRef, RingRefExt},
+        KeyAgreementAlgorithm, PrivateKey, PublicKey,
+    },
+    crate::asn1::public_key::{EcParameters, FieldId, SubjectPublicKeyInfo},
     anyhow::{anyhow, bail, ensure, Result},
+    rand::{CryptoRng, Rng, RngCore},
     std::{
         fmt::{self, Debug, Display, Formatter},
         ops::{Add, AddAssign, Mul, MulAssign, Neg},
@@ -12,8 +16,8 @@ use {
 // The largest prime field we support is 576 bits.
 // This covers all the named curves, including secp521r1.
 pub type Uint = ruint::Uint<576, 9>;
-pub type PrimeField = crate::crypto::PrimeField<576, 9>;
-pub type PrimeFieldElement<'a> = crate::crypto::PrimeFieldElement<'a, 576, 9>;
+pub type PrimeField = ModRing<Uint>;
+pub type PrimeFieldElement<'a> = ModRingElementRef<'a, Uint>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct EllipticCurve {
@@ -41,6 +45,71 @@ enum Coordinates<'a> {
 }
 
 pub type EcMonty = Option<(Uint, Uint)>;
+
+impl PrimeField {
+    pub fn from_field_id(field_id: &FieldId) -> Result<Self> {
+        let modulus = match field_id {
+            FieldId::PrimeField { modulus } => modulus.try_into()?,
+            _ => bail!("Field ID is not a prime field"),
+        };
+        Ok(Self::from_modulus(modulus))
+    }
+
+    pub fn byte_len(&self) -> usize {
+        self.modulus().byte_len()
+    }
+
+    /// Implements TR-03111 section 3.1.3 OS2FE procedure.
+    ///
+    /// Note that it does not have any requirement on the input length and requires
+    /// the reader to apply the modular reduction. Note that this violates the unique
+    /// encoding property of DER encoding, but we'll apply the robustness principle and
+    /// allow it.
+    ///
+    /// The matching encoding procedure, however, does specify an exact length.
+    pub fn os2fe<T: AsRef<[u8]>>(&self, os: T) -> PrimeFieldElement {
+        let os = os.as_ref();
+        // ensure!(
+        //     os.len() != self.modulus.byte_len(),
+        //     "OS2FE input length does not match modulus length"
+        // );
+        // Do modular reduction per TR-03111.
+        let mut result = self.zero();
+        let base = self.from(Uint::from(256));
+        for byte in os {
+            result *= base;
+            result += self.from(Uint::from(*byte));
+        }
+        result
+    }
+
+    /// TR-03111 section 4.1.1 Algorithm 1
+    pub fn random_nonzero(&self, mut rng: impl CryptoRng + RngCore) -> PrimeFieldElement {
+        loop {
+            let mut value = rng.gen::<Uint>();
+            // Zero out the high bits.
+            for b in self.modulus().bit_len()..Uint::BITS {
+                value.set_bit(b, false);
+            }
+            if value != Uint::ZERO && value < self.modulus() {
+                return self.from(value);
+            }
+        }
+    }
+}
+
+impl PrimeFieldElement<'_> {
+    pub fn field(&self) -> &PrimeField {
+        self.ring()
+    }
+
+    /// Implements TR-03111 section 3.1.3 FE2OS procedure.
+    pub fn fe2os(&self) -> Vec<u8> {
+        let mut result = self.to_uint().to_be_bytes_vec();
+        // Trim excess leading zeros.
+        result.split_off(result.len() - self.field().byte_len())
+    }
+}
 
 impl EllipticCurve {
     // TODO: ISO 7816 format (see TR-03111 section 5.1.2)
@@ -76,15 +145,15 @@ impl EllipticCurve {
 
         // Check non-singular requirement 4a^3 + 27b^2 != 0
         ensure!(
-            base_field.el_from_u64(4) * a.pow(3) + base_field.el_from_u64(27) * b.pow(2)
+            base_field.from(Uint::from(4)) * a.pow(3) + base_field.from(Uint::from(27)) * b.pow(2)
                 != base_field.zero()
         );
 
         let mut curve = Self {
             base_field,
             scalar_field,
-            a_monty: a.as_uint_monty(),
-            b_monty: b.as_uint_monty(),
+            a_monty: a.as_montgomery(),
+            b_monty: b.as_montgomery(),
             cofactor,
             generator_monty: (Uint::ZERO, Uint::ZERO),
         };
@@ -106,11 +175,11 @@ impl EllipticCurve {
     }
 
     pub fn a(&self) -> PrimeFieldElement {
-        self.base_field.el_from_monty(self.a_monty)
+        self.base_field.from_montgomery(self.a_monty)
     }
 
     pub fn b(&self) -> PrimeFieldElement {
-        self.base_field.el_from_monty(self.b_monty)
+        self.base_field.from_montgomery(self.b_monty)
     }
 
     pub fn generator(&self) -> EllipticCurvePoint {
@@ -140,8 +209,8 @@ impl EllipticCurve {
     pub fn pt_from_monty(&self, monty: EcMonty) -> Result<EllipticCurvePoint> {
         match monty {
             Some((x, y)) => self.pt_from_affine((
-                self.base_field.el_from_monty(x),
-                self.base_field.el_from_monty(y),
+                self.base_field.from_montgomery(x),
+                self.base_field.from_montgomery(y),
             )),
             None => Ok(self.pt_infinity()),
         }
@@ -150,7 +219,7 @@ impl EllipticCurve {
     /// TR-03111 section 3.2
     pub fn pt_from_bytes(&self, bytes: &[u8]) -> Result<EllipticCurvePoint> {
         ensure!(!bytes.is_empty());
-        let fe_len = self.base_field.byte_len();
+        let fe_len = self.base_field.modulus().byte_len();
         match bytes[0] {
             0x00 => {
                 ensure!(bytes.len() == 1);
@@ -169,7 +238,10 @@ impl EllipticCurve {
         }
     }
 
-    fn ensure_valid(&self, (x, y): (PrimeFieldElement, PrimeFieldElement)) -> Result<()> {
+    fn ensure_valid<'a>(
+        &'a self,
+        (x, y): (PrimeFieldElement<'a>, PrimeFieldElement<'a>),
+    ) -> Result<()> {
         // Check curve equation y^2 = x^3 + ax + b
         ensure!(
             y.pow(2) == x.pow(3) + self.a() * x + self.b(),
@@ -183,8 +255,8 @@ impl EllipticCurve {
     }
 }
 
-impl EllipticCurvePoint<'_> {
-    pub fn curve(&self) -> &EllipticCurve {
+impl<'a> EllipticCurvePoint<'a> {
+    pub fn curve(&self) -> &'a EllipticCurve {
         self.curve
     }
 
@@ -206,18 +278,18 @@ impl EllipticCurvePoint<'_> {
     pub fn as_monty(&self) -> EcMonty {
         match self.coordinates {
             Coordinates::Infinity => None,
-            Coordinates::Affine(x, y) => Some((x.as_uint_monty(), y.as_uint_monty())),
+            Coordinates::Affine(x, y) => Some((x.as_montgomery(), y.as_montgomery())),
         }
     }
 
-    pub fn x(&self) -> Option<PrimeFieldElement> {
+    pub fn x(&self) -> Option<PrimeFieldElement<'a>> {
         match self.coordinates {
             Coordinates::Infinity => None,
             Coordinates::Affine(x, _) => Some(x),
         }
     }
 
-    pub fn y(&self) -> Option<PrimeFieldElement> {
+    pub fn y(&self) -> Option<PrimeFieldElement<'a>> {
         match self.coordinates {
             Coordinates::Infinity => None,
             Coordinates::Affine(_, y) => Some(y),
@@ -228,14 +300,14 @@ impl EllipticCurvePoint<'_> {
 /// Elliptic Curve Key Agreement
 /// See TR-03111 section 4.3.1
 pub fn ecka<'a>(
-    private_key: PrimeFieldElement,
+    private_key: PrimeFieldElement<'a>,
     public_key: EllipticCurvePoint<'a>,
 ) -> Result<(EllipticCurvePoint<'a>, Vec<u8>)> {
     let curve = public_key.curve();
     ensure!(private_key.field() == curve.scalar_field());
 
     let h = curve.cofactor();
-    let l = curve.scalar_field().el_from_uint(h).inv().unwrap();
+    let l = curve.scalar_field().from(h).inv().unwrap();
     let q = h * public_key;
     let s_ab = (private_key * l) * q;
     ensure!(s_ab != curve.pt_infinity());
@@ -260,13 +332,13 @@ impl KeyAgreementAlgorithm for EllipticCurve {
         let private = self.scalar_field().random_nonzero(rng);
         let public = self.generator() * private;
         (
-            PrivateKey(Box::new(private.as_uint_monty())),
+            PrivateKey(Box::new(private.as_montgomery())),
             PublicKey(public.to_bytes()),
         )
     }
 
     fn key_agreement(&self, private: &PrivateKey, public: &PublicKey) -> Result<Vec<u8>> {
-        let private = self.scalar_field().el_from_monty(
+        let private = self.scalar_field().from_montgomery(
             *private
                 .0
                 .as_ref()
@@ -323,11 +395,11 @@ impl Add for EllipticCurvePoint<'_> {
                 if x1 == x2 {
                     if y1 == y2 {
                         // Point doubling
-                        let lambda = (self.curve.base_field.el_from_u64(3) * x1.pow(2)
+                        let lambda = (self.curve.base_field.from(Uint::from(3)) * x1.pow(2)
                             + self.curve.a())
-                            / (self.curve.base_field.el_from_u64(2) * y1);
+                            / (self.curve.base_field.from(Uint::from(2)) * y1);
                         let lambda = lambda.unwrap();
-                        let x3 = lambda.pow(2) - self.curve.base_field.el_from_u64(2) * x1;
+                        let x3 = lambda.pow(2) - self.curve.base_field.from(Uint::from(2)) * x1;
                         let y3 = lambda * (x1 - x3) - y1;
                         EllipticCurvePoint {
                             curve: self.curve,

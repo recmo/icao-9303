@@ -2,7 +2,7 @@ mod fields;
 mod ruint;
 
 use {
-    num_traits::{One, Zero},
+    num_traits::{One, PrimInt, Unsigned, Zero},
     std::{
         fmt::{self, Debug, Formatter},
         ops::{Add, AddAssign, Deref, Div, Mul, MulAssign, Neg, Sub, SubAssign},
@@ -12,7 +12,7 @@ use {
 
 /// Trait for Uint backends supporting Montgomery multiplication.
 pub trait UintMont:
-    Sized + Copy + PartialEq + Eq + Debug + Zero + One + Sub<Output = Self>
+    Sized + Copy + PartialEq + Eq + PartialOrd + Debug + Zero + One + Sub<Output = Self>
 {
     fn parameters_from_modulus(modulus: Self) -> ModRing<Self>;
     fn mul_redc(self, other: Self, modulus: Self, mod_inv: u64) -> Self;
@@ -23,6 +23,7 @@ pub trait UintMont:
 /// Trait for Uint backends that can be used for exponentiation.
 pub trait UintExp: Sized {
     /// Returns an upper bound for the highest bit set.
+    /// Ideally this should not depend on the value.
     fn bit_len(&self) -> usize;
 
     /// Is the `indext`th bit set in the binary expansion of `self`.
@@ -36,6 +37,14 @@ pub trait UintExp: Sized {
 /// a sufficiently large `Uint` will have to be picked compile time though.
 pub trait RingRef: Copy + Deref<Target = ModRing<Self::Uint>> {
     type Uint: UintMont;
+}
+
+#[allow(clippy::wrong_self_convention)] // TODO: Do we want this?
+pub trait RingRefExt: RingRef {
+    fn from_montgomery(self, value: Self::Uint) -> ModRingElement<Self>;
+    fn from<T: Into<Self::Uint>>(self, value: T) -> ModRingElement<Self>;
+    fn zero(self) -> ModRingElement<Self>;
+    fn one(self) -> ModRingElement<Self>;
 }
 
 /// Ring of integers modulo an odd positive integer.
@@ -70,76 +79,72 @@ impl<Uint: UintMont> ModRing<Uint> {
         Uint::parameters_from_modulus(modulus)
     }
 
+    pub fn modulus(&self) -> Uint {
+        self.modulus
+    }
+
     /// Montogomery multiplication for the ring.
-    #[inline]
     fn mont_mul(&self, a: Uint, b: Uint) -> Uint {
         a.mul_redc(b, self.modulus, self.mod_inv)
     }
 }
 
+impl<Ring: RingRef> RingRefExt for Ring {
+    fn from_montgomery(self, value: Ring::Uint) -> ModRingElement<Self> {
+        debug_assert!(value < self.modulus);
+        ModRingElement { ring: self, value }
+    }
+
+    fn from<T: Into<Self::Uint>>(self, value: T) -> ModRingElement<Self> {
+        let value = value.into();
+        assert!(value < self.modulus);
+        let value = self.mont_mul(value, self.montgomery_r2);
+        self.from_montgomery(value)
+    }
+
+    fn zero(self) -> ModRingElement<Self> {
+        self.from_montgomery(Ring::Uint::zero())
+    }
+
+    fn one(self) -> ModRingElement<Self> {
+        self.from_montgomery(self.montgomery_r)
+    }
+}
+
 impl<Ring: RingRef> ModRingElement<Ring> {
-    pub fn from_montgomery(ring: Ring, value: Ring::Uint) -> Self {
-        Self { ring, value }
-    }
-
-    pub fn from_uint(ring: Ring, value: Ring::Uint) -> Self {
-        let value = ring.mont_mul(value, ring.montgomery_r);
-        Self::from_montgomery(ring, value)
-    }
-
-    pub fn zero(ring: Ring) -> Self {
-        Self::from_montgomery(ring, Ring::Uint::zero())
-    }
-
-    pub fn one(ring: Ring) -> Self {
-        let value = ring.montgomery_r;
-        Self::from_montgomery(ring, value)
-    }
-
     pub fn ring(&self) -> &ModRing<Ring::Uint> {
         &self.ring
     }
 
-    /// Create a version that references the ring.
-    /// This is usefu
-    #[inline]
-    pub fn as_ref(&self) -> ModRingElementRef<'_, Ring::Uint> {
-        ModRingElement::from_montgomery(&self.ring, self.value)
-    }
-
-    #[inline]
-    pub fn as_uint_monty(self) -> Ring::Uint {
+    pub fn as_montgomery(self) -> Ring::Uint {
         self.value
     }
 
-    #[inline]
     pub fn to_uint(self) -> Ring::Uint {
         self.ring.mont_mul(self.value, Ring::Uint::one())
     }
 
     /// Small exponentiation
     ///
-    /// Run time may depend on the exponent.
-    #[inline]
+    /// Run time may depend on the exponent, use [`pow_ct`] if constant time is required.
     pub fn pow(self, exponent: u64) -> Self {
         match exponent {
-            0 => Self::one(self.ring),
+            0 => self.ring.one(),
             1 => self,
             2 => self * self,
             3 => self * self * self,
-            n if n % 2 == 0 => (self * self).pow(n / 2),
-            n => self * self.pow(n - 1),
+            n if n % 4 == 0 => self.pow(n / 4),
+            n => self.pow(n % 4) * self.pow(n / 4),
         }
     }
 
     /// Inversion
     ///
     /// Run time may depend on the value.
-    #[inline]
     pub fn inv(self) -> Option<Self> {
         let value = self.value.inv_mod(self.ring.modulus)?;
         let value = self.ring.mont_mul(value, self.ring.montgomery_r3);
-        Some(Self::from_montgomery(self.ring, value))
+        Some(self.ring.from_montgomery(value))
     }
 }
 
@@ -147,18 +152,21 @@ impl<Ring: RingRef> ModRingElement<Ring>
 where
     Ring::Uint: ConditionallySelectable,
 {
-    /// Large constant-time exponentation.
-    pub fn pow_ct<U: UintExp>(self, exponent: U) -> Self {
-        let mut result = ModRingElement::one(self.ring());
-        let mut power = self.as_ref();
+    /// Constant-time exponentation with arbitrary unsigned int exponent.
+    pub fn pow_ct<U: UintExp + Debug>(self, exponent: U) -> Self {
+        dbg!(self, &exponent);
+        let mut result = self.ring.one();
+        let mut power = self;
         // We use `bit_len` here as an optimization when B >> log_2 exponent.
         // However, this does result in leaking the number of leading zeros.
         for i in 0..exponent.bit_len() {
-            result.conditional_assign(&(result * power), exponent.bit_ct(i));
+            let product = result * power;
+            result.conditional_assign(&product, exponent.bit_ct(i));
             power *= power;
         }
+        dbg!(result);
         let value = result.value;
-        Self::from_montgomery(self.ring, value)
+        self.ring.from_montgomery(value)
     }
 }
 
@@ -187,7 +195,6 @@ forward_fmt!(
 impl<Ring: RingRef> Add for ModRingElement<Ring> {
     type Output = Self;
 
-    #[inline]
     fn add(mut self, other: Self) -> Self {
         self += other;
         self
@@ -197,7 +204,6 @@ impl<Ring: RingRef> Add for ModRingElement<Ring> {
 impl<Ring: RingRef> Sub for ModRingElement<Ring> {
     type Output = Self;
 
-    #[inline]
     fn sub(mut self, other: Self) -> Self {
         self -= other;
         self
@@ -207,7 +213,6 @@ impl<Ring: RingRef> Sub for ModRingElement<Ring> {
 impl<Ring: RingRef> Mul for ModRingElement<Ring> {
     type Output = Self;
 
-    #[inline]
     fn mul(mut self, other: Self) -> Self {
         self *= other;
         self
@@ -217,14 +222,13 @@ impl<Ring: RingRef> Mul for ModRingElement<Ring> {
 impl<Ring: RingRef> Neg for ModRingElement<Ring> {
     type Output = Self;
 
-    #[inline]
     fn neg(self) -> Self {
         // TODO: Constant time
         if self.value.is_zero() {
             self
         } else {
             let value = self.ring.modulus - self.value;
-            Self::from_montgomery(self.ring, value)
+            self.ring.from_montgomery(value)
         }
     }
 }
@@ -235,7 +239,6 @@ impl<Ring: RingRef> Div for ModRingElement<Ring> {
     /// Division
     ///
     /// Run time may depend on the value of the divisor.
-    #[inline]
     fn div(self, other: Self) -> Option<Self> {
         assert_eq!(self.ring(), other.ring());
         other.inv().map(|inv| self * inv)
@@ -243,7 +246,6 @@ impl<Ring: RingRef> Div for ModRingElement<Ring> {
 }
 
 impl<Ring: RingRef> AddAssign for ModRingElement<Ring> {
-    #[inline]
     fn add_assign(&mut self, other: Self) {
         assert_eq!(self.ring(), other.ring());
         self.value = self.value.add_mod(other.value, self.ring.modulus);
@@ -251,14 +253,12 @@ impl<Ring: RingRef> AddAssign for ModRingElement<Ring> {
 }
 
 impl<Ring: RingRef> SubAssign for ModRingElement<Ring> {
-    #[inline]
     fn sub_assign(&mut self, other: Self) {
         self.add_assign(other.neg())
     }
 }
 
 impl<Ring: RingRef> MulAssign for ModRingElement<Ring> {
-    #[inline]
     fn mul_assign(&mut self, other: Self) {
         assert_eq!(self.ring(), other.ring());
         self.value = self.ring.mont_mul(self.value, other.value);
@@ -269,11 +269,10 @@ impl<Ring: RingRef> ConditionallySelectable for ModRingElement<Ring>
 where
     Ring::Uint: ConditionallySelectable,
 {
-    #[inline]
     fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
         assert_eq!(a.ring(), b.ring());
         let value = Ring::Uint::conditional_select(&a.value, &b.value, choice);
-        Self::from_montgomery(a.ring, value)
+        a.ring.from_montgomery(value)
     }
 }
 
@@ -281,9 +280,22 @@ impl<Ring: RingRef> ConstantTimeEq for ModRingElement<Ring>
 where
     Ring::Uint: ConstantTimeEq,
 {
-    #[inline]
     fn ct_eq(&self, other: &Self) -> Choice {
         assert_eq!(self.ring(), other.ring());
         self.value.ct_eq(&other.value)
+    }
+}
+
+impl<T> UintExp for T
+where
+    T: PrimInt + Unsigned + ConstantTimeEq + Debug,
+{
+    fn bit_len(&self) -> usize {
+        T::zero().count_zeros() as usize
+    }
+
+    fn bit_ct(&self, index: usize) -> Choice {
+        let bit = T::one() << index;
+        (*self & bit).ct_eq(&bit)
     }
 }

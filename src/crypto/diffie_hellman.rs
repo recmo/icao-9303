@@ -1,7 +1,10 @@
 //! Diffie-Hellman key exchange on Mod P groups.
 
 use {
-    super::{CryptoCoreRng, KeyAgreementAlgorithm, PrivateKey, PublicKey},
+    super::{
+        mod_ring::{ModRing, ModRingElementRef, RingRefExt},
+        CryptoCoreRng, KeyAgreementAlgorithm, PrivateKey, PublicKey,
+    },
     crate::asn1::public_key::{DhAlgoParameters, PubkeyAlgorithmIdentifier, SubjectPublicKeyInfo},
     anyhow::{anyhow, bail, ensure, Result},
     der::{asn1::BitString, Decode},
@@ -13,8 +16,33 @@ use {
 // This covers all named MODP groups.
 // https://www.rfc-editor.org/rfc/rfc5114
 pub type Uint = ruint::Uint<2048, 32>;
-pub type PrimeField = crate::crypto::PrimeField<2048, 32>;
-pub type PrimeFieldElement<'a> = crate::crypto::PrimeFieldElement<'a, 2048, 32>;
+pub type PrimeField = ModRing<Uint>;
+pub type PrimeFieldElement<'a> = ModRingElementRef<'a, Uint>;
+
+impl PrimeField {
+    // Generate a value 1 < x < p−1 (See PKCS #3).
+    // Note: Montgomery form does not affect the normal distribution.
+    pub fn random_pkcs_3(&self, mut rng: impl CryptoRng + RngCore) -> PrimeFieldElement {
+        let lower = Uint::from(1);
+        let upper = self.modulus() - Uint::from(1);
+        loop {
+            let mut value = rng.gen::<Uint>();
+            // Zero out the high bits.
+            for b in self.modulus().bit_len()..Uint::BITS {
+                value.set_bit(b, false);
+            }
+            if value > lower && value < upper {
+                return self.from(value);
+            }
+        }
+    }
+}
+
+impl PrimeFieldElement<'_> {
+    pub fn field(&self) -> &PrimeField {
+        self.ring()
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ModPGroup {
@@ -33,7 +61,7 @@ impl ModPGroup {
 
     pub fn from_parameters(params: &DhAlgoParameters) -> Result<Self> {
         let modulus: Uint = (&params.prime).try_into()?;
-        let generator = (&params.base).try_into()?;
+        let generator: Uint = (&params.base).try_into()?;
         ensure!(generator < modulus, "Generator must be less than modulus");
         let private_value_length = params
             .private_value_length
@@ -43,12 +71,12 @@ impl ModPGroup {
             ensure!(modulus.bit_len() > l, "Private value length too large.");
         }
         let field = PrimeField::from_modulus(modulus);
-        let generator = field.el_from_uint(generator);
+        let generator = field.from(generator);
         // Unfortunately the parameters do not provide the order of the generator.
         // So we can not construct the scalar field.
         Ok(Self {
             base_field: field,
-            generator_monty: generator.as_uint_monty(),
+            generator_monty: generator.as_montgomery(),
             private_value_length,
         })
     }
@@ -59,7 +87,7 @@ impl ModPGroup {
     ) -> Self {
         Self {
             base_field: *generator.field(),
-            generator_monty: generator.as_uint_monty(),
+            generator_monty: generator.as_montgomery(),
             private_value_length,
         }
     }
@@ -69,17 +97,17 @@ impl ModPGroup {
     }
 
     pub fn generator(&self) -> PrimeFieldElement<'_> {
-        self.base_field.el_from_monty(self.generator_monty)
+        self.base_field.from_montgomery(self.generator_monty)
     }
 
     pub fn el_from_bitstring(&self, bits: &BitString) -> Result<PrimeFieldElement<'_>> {
         let uint = Uint::from_der(bits.raw_bytes())?;
         ensure!(uint < self.base_field.modulus());
-        Ok(self.base_field.el_from_uint(uint))
+        Ok(self.base_field.from(uint))
     }
 
     pub fn el_from_monty(&self, el: Uint) -> PrimeFieldElement<'_> {
-        self.base_field.el_from_monty(el)
+        self.base_field.from(el)
     }
 
     // Convert to octet string according to PKCS#3
@@ -100,7 +128,7 @@ impl ModPGroup {
     pub fn el_from_bytes(&self, bytes: &[u8]) -> Result<PrimeFieldElement<'_>> {
         let uint = Uint::from_be_slice(bytes);
         ensure!(uint < self.base_field.modulus());
-        Ok(self.base_field.el_from_uint(uint))
+        Ok(self.base_field.from(uint))
     }
 
     pub fn private_to_public_key(&self, private_key: Uint) -> PrimeFieldElement<'_> {
@@ -121,10 +149,7 @@ impl ModPGroup {
             assert!(value < Uint::from(2).pow(Uint::from(bits)));
             value
         } else {
-            // Generate a value 0 < x < p−1 [sic] (See PKCS #3).
-            // We instead generate 0 < x < p.
-            // Note: Montgomery form does not affect the normal distribution.
-            self.base_field.random_nonzero(rng).as_uint_monty()
+            self.base_field.random_pkcs_3(rng).as_montgomery()
         }
     }
 }
@@ -178,7 +203,7 @@ impl KeyAgreementAlgorithm for ModPGroup {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, crate::crypto::PrimeField, hex_literal::hex};
+    use {super::*, hex_literal::hex};
 
     /// ICAEO 9303-11 G-10 example G.2
     #[test]
@@ -209,7 +234,7 @@ mod tests {
         );
 
         let field = PrimeField::from_modulus(Uint::from_be_slice(&prime));
-        let generator = field.el_from_uint(Uint::from_be_slice(&generator));
+        let generator = field.from(Uint::from_be_slice(&generator));
         let modp = ModPGroup::from_generator(generator, None);
 
         let term_private_key = hex!("5265030F 751F4AD1 8B08AC56 5FC7AC95 2E41618D");
@@ -269,7 +294,7 @@ mod tests {
             EF1E7790 32A30580 3F743417 93E86974
             2D401325 B37EE856 5FFCDEE6 18342DC5"
         );
-        let generator = field.el_from_uint(Uint::from_be_slice(&mapped_generator));
+        let generator = field.from(Uint::from_be_slice(&mapped_generator));
         let modp = ModPGroup::from_generator(generator, None);
 
         let term_private_key = hex!("89CCD99B 0E8D3B1F 11E1296D CA68EC53 411CF2CA");
